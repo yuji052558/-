@@ -536,7 +536,8 @@ function computeResultsA(data){
   const winnerActivities = ACTIVITY_OPTS.filter(a=>activityCounts[a]>0 && activityCounts[a]===maxActivity);
   const winnerFoods = FOOD_OPTS.filter(f=>foodCounts[f]>0 && foodCounts[f]===maxFood);
 
-  const unanimousDates = total>0 ? (data.dates||[]).filter(d=>dateCounts[d]===total) : [];
+  const teamSize = data.teamSize || 0;
+  const unanimousDates = teamSize>0 ? (data.dates||[]).filter(d=>dateCounts[d]===teamSize) : [];
   const maxDateCount = Math.max(0, ...Object.values(dateCounts));
   const sortedDates = (data.dates||[]).slice().sort((a,b)=> dateCounts[b]-dateCounts[a] || a.localeCompare(b));
   const top3Dates = sortedDates.filter(d=>dateCounts[d]>0).slice(0,3);
@@ -598,7 +599,7 @@ function render(){
 function heroBlock(subtitle, poll){
   return `
     <div class="hero">
-      <div class="hero-badge">복후비<br>다 쓰는<br>그 날까지</div>
+      <div class="hero-badge">복지회식비<br>다 쓰는<br>그 날까지</div>
       <div class="hero-top"><img class="logo-img" src="${BOKPICK_LOGO_SRC}" alt="BOKPICK"></div>
       <div class="dashed-path"></div>
       ${poll ? `<div class="poll-title">${esc(poll.title)}</div>` : ''}
@@ -648,7 +649,7 @@ function renderCalendar(monthStr, opts){
 function renderSetup(){
   return `
     ${heroBlock('새 회식 투표를 만들어보세요')}
-    <div class="setup-note">💡 이번 달 복후비를 다 써야 한다면, 아래에서 해당 월을 고르면 그 달의 모든 날짜가 후보로 자동 등록돼요. 공휴일 등 제외하고 싶은 날짜는 달력에서 눌러서 빼주세요.</div>
+    <div class="setup-note">💡 이번 달 복지회식비를 다 써야 한다면, 아래에서 해당 월을 고르면 그 달의 모든 날짜가 후보로 자동 등록돼요. 공휴일 등 제외하고 싶은 날짜는 달력에서 눌러서 빼주세요.</div>
 
     <div class="card">
       <div class="step-label"><span class="step-num">1</span> 투표 제목</div>
@@ -794,7 +795,7 @@ function renderVoting(doc){
           return `<div class="date-result-row ${isUnanimous?'unanimous':''}">
             <span class="dinfo">${md}<span class="dow">${dow}요일</span></span>
             <span style="display:flex; align-items:center; gap:8px;">
-              <span class="badge-count">${c}/${res.total}명 가능</span>
+              <span class="badge-count">${c}/${doc.teamSize}명 가능</span>
               ${isUnanimous?'<span class="stamp">만장일치</span>':''}
             </span>
           </div>`;
