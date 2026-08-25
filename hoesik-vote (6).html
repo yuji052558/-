@@ -1,0 +1,1187 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>회식 투표</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+
+<!-- ======================================================================
+  🔧 여기에 본인의 Firebase 프로젝트 설정을 붙여넣으세요.
+  Firebase 콘솔(https://console.firebase.google.com) > 프로젝트 설정 >
+  '내 앱' 추가(웹) 하면 아래와 같은 객체를 복사할 수 있어요.
+  자세한 설정 방법은 채팅 답변을 참고해주세요.
+======================================================================= -->
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyAOXJorSrFgjBleiLn79lswE02vxqXNWiY",
+    authDomain: "bokpick-4ca3b.firebaseapp.com",
+    projectId: "bokpick-4ca3b",
+    storageBucket: "bokpick-4ca3b.firebasestorage.app",
+    messagingSenderId: "34778982140",
+    appId: "1:34778982140:web:779511ec35f89164d4d979"
+  };
+</script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<style>
+  :root{
+    --cream: #F4F0E4;
+    --cream-2: #EAE3CE;
+    --ink: #16213E;
+    --blue: #2F4BFF;
+    --blue-dark: #1E34C7;
+    --sky: #E1E9FF;
+    --white: #FFFFFF;
+    --muted: #74788A;
+    --line: #D9D1B8;
+    --yellow: #FFC94A;
+    --red: #E8542A;
+    --radius: 16px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background: var(--cream);
+    color: var(--ink);
+    font-family: 'Noto Sans KR', sans-serif;
+    min-height:100vh;
+  }
+  .wrap{ max-width: 760px; margin:0 auto; padding: 24px 18px 90px; }
+
+  /* ---------- HERO / LOGO ---------- */
+  .hero{
+    position:relative;
+    text-align:center;
+    background: var(--white);
+    border: 2px solid var(--ink);
+    border-radius: 24px;
+    padding: 30px 18px 24px;
+    margin-bottom: 22px;
+    overflow:hidden;
+  }
+  .hero::before{
+    content:'';
+    position:absolute; inset:0;
+    background-image: radial-gradient(circle, var(--sky) 1.5px, transparent 1.5px);
+    background-size: 22px 22px;
+    opacity:.6;
+    pointer-events:none;
+  }
+  .hero-top{
+    position:relative;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    margin-bottom:6px;
+  }
+  .plane{ font-size:20px; transform: rotate(-20deg); }
+  .logo-text{
+    position:relative;
+    font-family:'Do Hyeon', sans-serif;
+    font-size: clamp(30px, 7.5vw, 46px);
+    color: var(--blue);
+    letter-spacing:1px;
+    text-shadow: 3px 3px 0 var(--ink);
+    margin:0;
+  }
+  .hero .dashed-path{
+    position:relative;
+    height: 1px;
+    border-top: 2px dashed var(--blue);
+    opacity:.4;
+    margin: 10px auto 14px;
+    width: 70%;
+  }
+  .poll-title{
+    position:relative;
+    font-family:'Do Hyeon', sans-serif;
+    font-size: 19px;
+    color: var(--ink);
+    margin: 2px 0 4px;
+  }
+  .hero p.sub{ position:relative; color: var(--muted); margin:0; font-size:13px; }
+
+  .checker-divider{
+    height: 14px;
+    margin: 24px 0;
+    border-radius: 6px;
+    background-image:
+      linear-gradient(45deg, var(--blue) 25%, transparent 25%),
+      linear-gradient(-45deg, var(--blue) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, var(--blue) 75%),
+      linear-gradient(-45deg, transparent 75%, var(--blue) 75%);
+    background-size: 14px 14px;
+    background-position: 0 0, 0 7px, 7px -7px, -7px 0px;
+    background-color: var(--white);
+    border: 2px solid var(--ink);
+  }
+
+  .topnav{ display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px; }
+
+  /* ---------- CARDS / FORM ---------- */
+  .card{
+    background: var(--white);
+    border: 2px solid var(--ink);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .step-label{
+    display:flex; align-items:center; gap:10px;
+    font-family:'Do Hyeon', sans-serif;
+    font-size: 19px;
+    color: var(--blue);
+    margin: 0 0 4px;
+  }
+  .step-num{
+    width:28px; height:28px; border-radius:50%;
+    background: var(--ink);
+    color: var(--white);
+    display:flex; align-items:center; justify-content:center;
+    font-size:13px; flex-shrink:0; font-family:'Noto Sans KR',sans-serif; font-weight:700;
+  }
+  .step-desc{ color: var(--muted); font-size: 12.5px; margin: 0 0 14px 38px; }
+
+  input[type=text], input[type=number], input[type=month], input[type=time]{
+    width:100%;
+    padding: 11px 13px;
+    background: var(--cream);
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    color: var(--ink);
+    font-size: 14.5px;
+    font-family: inherit;
+  }
+  input:focus{ outline: 2px solid var(--blue); outline-offset:1px; }
+  label.checkbox-label{
+    display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted);
+    margin-top:10px; margin-left:38px;
+  }
+
+  .option-grid{ display:flex; flex-wrap:wrap; gap:9px; margin-left:38px; }
+  .option-pill{
+    padding: 9px 16px;
+    border-radius: 999px;
+    border: 1.5px solid var(--line);
+    background: var(--cream);
+    color: var(--ink);
+    font-size: 13.5px;
+    cursor: pointer;
+    transition: all .12s ease;
+    user-select:none;
+  }
+  .option-pill:hover{ border-color: var(--blue); }
+  .option-pill.selected{
+    background: var(--blue);
+    border-color: var(--blue);
+    color:#fff;
+    font-weight:700;
+  }
+  .other-input{ margin-left:38px; margin-top:10px; }
+  .other-add-row{ display:flex; gap:8px; }
+  .other-add-row button{
+    background: var(--ink); color:#fff; border:none; border-radius:10px;
+    padding: 0 16px; font-family:inherit; font-size:13px; cursor:pointer; white-space:nowrap;
+  }
+  .other-chip-row{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .other-chip{
+    display:flex; align-items:center; gap:6px;
+    background: var(--sky); border:1px solid var(--blue);
+    padding:5px 10px; border-radius:999px; font-size:12.5px;
+  }
+  .other-chip button{ background:none;border:none;color:var(--blue-dark);cursor:pointer;font-size:13px; }
+
+  .submit-btn{
+    display:block; width:100%; padding:14px; margin-top:20px;
+    background: var(--blue); border:none; border-radius:12px; color:#fff;
+    font-family:'Do Hyeon', sans-serif; font-size:16px; letter-spacing:.5px; cursor:pointer;
+  }
+  .submit-btn:hover{ background: var(--blue-dark); }
+  .submit-btn:disabled{ opacity:.55; cursor:default; }
+  .ghost-btn{
+    background: var(--white); border:1.5px solid var(--line); color:var(--muted);
+    padding: 8px 14px; border-radius:10px; font-size:12.5px; cursor:pointer; font-family:inherit;
+  }
+  .ghost-btn:hover{ border-color: var(--blue); color: var(--blue); }
+  .admin-btn{
+    background: var(--yellow); border:1.5px solid var(--ink); color:var(--ink);
+    padding: 10px 16px; border-radius:10px; font-size:13px; cursor:pointer; font-family:'Noto Sans KR',sans-serif; font-weight:700;
+  }
+  .admin-btn:hover{ filter:brightness(0.95); }
+  .error-text{ color: var(--red); font-size: 12.5px; margin: 8px 0 0 38px; }
+  .hint{ color: var(--muted); font-size:12px; margin: 6px 0 0; }
+
+  .progress-wrap{ margin-bottom:14px; }
+  .progress-track{
+    background: var(--cream-2); border-radius:8px; height:10px; overflow:hidden; border:1px solid var(--line);
+  }
+  .progress-fill{ height:100%; background: var(--blue); border-radius:8px; }
+  .progress-label{ font-size:12.5px; color:var(--muted); margin-bottom:6px; text-align:right; }
+
+  .divider-title{
+    font-family:'Do Hyeon', sans-serif; font-size:21px; color:var(--ink);
+    text-align:center; margin: 30px 0 16px; position:relative;
+  }
+  .divider-title span{ background: var(--cream); padding:0 14px; position:relative; z-index:1; }
+  .divider-title::before{ content:''; position:absolute; left:0; right:0; top:50%; border-top:1px dashed var(--line); }
+
+  .bar-row{ margin-bottom:12px; }
+  .bar-row .bar-label{ display:flex; justify-content:space-between; font-size:13px; margin-bottom:5px; }
+  .bar-row .bar-label .win{ color: var(--blue); font-weight:700; }
+  .bar-track{ background: var(--cream-2); border-radius:8px; height:15px; overflow:hidden; border:1px solid var(--line); }
+  .bar-fill{ height:100%; background: var(--blue); border-radius:8px; min-width:2%; }
+
+  .date-result-row{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 10px 12px; border-radius:10px; border:1.5px solid var(--line);
+    margin-bottom:8px; background: var(--cream);
+  }
+  .date-result-row.unanimous{ border-color: var(--blue); background: var(--sky); }
+  .date-result-row .dinfo{ font-size:13.5px; }
+  .date-result-row .dinfo .dow{ color:var(--muted); font-size:11.5px; margin-left:6px; }
+  .stamp{
+    font-family:'Do Hyeon', sans-serif; font-size:11px; color: var(--blue);
+    border:2px solid var(--blue); border-radius:6px; padding:2px 8px; letter-spacing:.5px;
+  }
+  .badge-count{ font-size:11.5px; color: var(--muted); }
+
+  .voter-list{ display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+  .voter-tag{
+    display:flex; align-items:center; gap:6px;
+    background: var(--cream); border:1px solid var(--line);
+    padding:6px 10px; border-radius:999px; font-size:12.5px;
+  }
+  .voter-tag button{ background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;text-decoration:underline; }
+  .voter-tag button:hover{ color: var(--blue); }
+  .empty-note{ color: var(--muted); font-size:13px; text-align:center; padding:10px 0; }
+
+  /* ---------- CALENDAR ---------- */
+  .cal-head{ display:flex; justify-content:space-between; align-items:center; margin-left:38px; margin-bottom:8px; }
+  .cal-head .cal-month{ font-family:'Do Hyeon', sans-serif; font-size:15px; }
+  .cal-grid{ display:grid; grid-template-columns:repeat(7, 1fr); gap:5px; margin-left:38px; }
+  .cal-dow{ text-align:center; font-size:11px; color:var(--muted); padding-bottom:2px; }
+  .cal-day{
+    aspect-ratio:1; display:flex; align-items:center; justify-content:center;
+    border-radius:9px; border:1.5px solid var(--line); background:var(--cream);
+    font-size:12.5px; cursor:pointer; position:relative;
+  }
+  .cal-day.blank{ visibility:hidden; }
+  .cal-day.disabled{ opacity:.3; cursor:default; background:transparent; border-style:dashed; }
+  .cal-day.selected{ background: var(--blue); border-color:var(--blue); color:#fff; font-weight:700; }
+  .cal-day.excluded{ background:transparent; color:var(--muted); text-decoration:line-through; opacity:.5; }
+  .cal-legend{ margin-left:38px; margin-top:8px; font-size:11.5px; color:var(--muted); }
+
+  /* ---------- RESTAURANT ---------- */
+  .resto-pill{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:12px 14px; border-radius:12px; border:1.5px solid var(--line);
+    background:var(--cream); margin-bottom:8px; cursor:pointer;
+  }
+  .resto-pill.selected{ border-color:var(--blue); background:var(--sky); }
+  .resto-pill .r-name{ font-weight:700; font-size:14px; }
+  .resto-pill .r-note{ font-size:12px; color:var(--muted); }
+
+  /* ---------- FINAL CARD ---------- */
+  .final-card{
+    background: var(--ink); color:#fff; border-radius:20px; padding:26px 22px; text-align:center;
+    margin-bottom:20px;
+  }
+  .final-card .tag{ font-size:12px; letter-spacing:2px; color: var(--yellow); margin-bottom:8px; }
+  .final-card h2{ font-family:'Do Hyeon', sans-serif; font-size:26px; margin:0 0 14px; }
+  .final-row{ display:flex; justify-content:center; gap:8px; font-size:14px; margin-bottom:6px; }
+  .final-row b{ color: var(--yellow); }
+
+  .history-item{
+    border:1.5px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:10px; background:var(--white);
+  }
+  .history-item .h-date{ font-family:'Do Hyeon', sans-serif; font-size:15px; color:var(--blue); }
+  .history-item .h-meta{ font-size:12.5px; color:var(--muted); margin-top:4px; }
+
+  .footer-note{ text-align:center; color: var(--muted); font-size:12px; margin-top:26px; }
+  .loading{ text-align:center; padding:60px 0; color: var(--muted); }
+  .setup-note{
+    background: var(--sky); border:1.5px dashed var(--blue); border-radius:12px; padding:12px 14px;
+    font-size:12.5px; color:var(--ink); margin-bottom:16px; line-height:1.5;
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="loading">불러오는 중...</div></div>
+
+<script>
+/* ==================== 상수 ==================== */
+const ACTIVITY_OPTS = ['점심회식','저녁회식','간식만 구입','기타 활동'];
+const FOOD_OPTS = ['한식','중식','일식','양식','기타'];
+const NEEDS_FOOD = ['점심회식','저녁회식'];
+const DOW = ['일','월','화','수','목','금','토'];
+
+/* ==================== Firebase ==================== */
+let db = null;
+let firebaseReady = false;
+try{
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  firebaseReady = true;
+}catch(e){
+  console.error('Firebase 초기화 실패', e);
+}
+const pollRef = firebaseReady ? db.collection('polls').doc('current') : null;
+const historyRef = firebaseReady ? db.collection('polls').doc('history') : null;
+
+/* ==================== 전역 상태 ==================== */
+let currentDoc = null;
+let docLoaded = false;
+let historyItems = null; // null = 아직 로드 안 함
+let showHistory = false;
+
+let setupState = {
+  title: '우리팀 회식',
+  teamSize: 8,
+  month: defaultMonth(),
+  weekdayOnly: true,
+  excluded: new Set()
+};
+
+let voteForm = emptyVoteForm();
+let editingName = null;
+let closeConfirming = false;
+
+let restaurantForm = { name:'', newOptionName:'', newOptionNote:'', selectedOptionId:null };
+let editingRestoVoter = null;
+let restoAddError = '';
+let finalizeForm = { time:'', optionId:null };
+let restoCloseConfirming = false;
+
+let newPollConfirming = false;
+
+function emptyVoteForm(){
+  return { name:'', activities:new Set(), activityNotes:[], activityNoteInput:'',
+           foods:new Set(), foodNotes:[], foodNoteInput:'', dates:new Set() };
+}
+function defaultMonth(){
+  const d = new Date();
+  d.setMonth(d.getMonth()+1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+function esc(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtDate(iso){
+  const d = new Date(iso+'T00:00:00');
+  return { md:`${d.getMonth()+1}/${d.getDate()}`, dow: DOW[d.getDay()] };
+}
+function monthDates(monthStr){
+  const [y,m] = monthStr.split('-').map(Number);
+  const days = new Date(y, m, 0).getDate();
+  const arr = [];
+  for(let d=1; d<=days; d++){
+    const dt = new Date(y, m-1, d);
+    arr.push({ iso: `${monthStr}-${String(d).padStart(2,'0')}`, day:d, dow: dt.getDay() });
+  }
+  return arr;
+}
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+/* ==================== Firestore IO ==================== */
+async function loadHistory(){
+  if(!firebaseReady) return;
+  try{
+    const snap = await historyRef.get();
+    historyItems = snap.exists ? (snap.data().items||[]) : [];
+  }catch(e){
+    console.error(e);
+    historyItems = [];
+  }
+  render();
+}
+
+async function createPoll(cfg){
+  await pollRef.set({
+    title: cfg.title, teamSize: cfg.teamSize, month: cfg.month, dates: cfg.dates,
+    stage: 'voting', votes:{}, resultsA:null,
+    restaurant: { options:[], votes:{} },
+    finalSummary: null, archived:false, createdAt: Date.now()
+  });
+}
+
+async function saveVote(name, voteData, prevName){
+  await db.runTransaction(async (tx)=>{
+    const snap = await tx.get(pollRef);
+    if(!snap.exists) throw new Error('no-poll');
+    const data = snap.data();
+    const votes = Object.assign({}, data.votes||{});
+    if(prevName && prevName!==name) delete votes[prevName];
+    votes[name] = voteData;
+    tx.update(pollRef, { votes });
+  });
+}
+
+async function closeStageA(){
+  await db.runTransaction(async (tx)=>{
+    const snap = await tx.get(pollRef);
+    if(!snap.exists) return;
+    const data = snap.data();
+    const res = computeResultsA(data);
+    const goesToRestaurant = res.winnerActivities.some(a=>NEEDS_FOOD.includes(a));
+    if(goesToRestaurant){
+      tx.update(pollRef, { resultsA: res, stage: 'restaurant' });
+    } else {
+      const summary = {
+        title: data.title, date: res.winnerDate,
+        activities: res.winnerActivities, foods: res.winnerFoods,
+        restaurantName: null, time: null
+      };
+      tx.update(pollRef, { resultsA: res, stage: 'done', finalSummary: summary, archived: true });
+    }
+  });
+  const snap = await pollRef.get();
+  const data = snap.data();
+  if(data.stage === 'done' && data.finalSummary){
+    await archiveResult(data.finalSummary);
+  }
+}
+
+async function addRestaurantOption(name, note){
+  await db.runTransaction(async (tx)=>{
+    const snap = await tx.get(pollRef);
+    if(!snap.exists) return;
+    const data = snap.data();
+    const options = (data.restaurant && data.restaurant.options) ? data.restaurant.options.slice() : [];
+    options.push({ id: uid(), name, note });
+    const restaurant = Object.assign({}, data.restaurant, { options });
+    tx.update(pollRef, { restaurant });
+  });
+}
+
+async function saveRestoVote(name, optionId, prevName){
+  await db.runTransaction(async (tx)=>{
+    const snap = await tx.get(pollRef);
+    if(!snap.exists) return;
+    const data = snap.data();
+    const votes = Object.assign({}, (data.restaurant && data.restaurant.votes) || {});
+    if(prevName && prevName!==name) delete votes[prevName];
+    votes[name] = optionId;
+    const restaurant = Object.assign({}, data.restaurant, { votes });
+    tx.update(pollRef, { restaurant });
+  });
+}
+
+async function finalizeRestaurant(optionId, time){
+  await db.runTransaction(async (tx)=>{
+    const snap = await tx.get(pollRef);
+    if(!snap.exists) return;
+    const data = snap.data();
+    const opt = (data.restaurant.options||[]).find(o=>o.id===optionId);
+    const summary = {
+      title: data.title, date: data.resultsA.winnerDate,
+      activities: data.resultsA.winnerActivities, foods: data.resultsA.winnerFoods,
+      restaurantName: opt ? opt.name : null, time: time || null
+    };
+    tx.update(pollRef, { stage:'done', finalSummary: summary, archived:true });
+  });
+  const snap = await pollRef.get();
+  await archiveResult(snap.data().finalSummary);
+}
+
+async function archiveResult(summary){
+  await db.runTransaction(async (tx)=>{
+    const snap = await tx.get(historyRef);
+    const items = snap.exists ? (snap.data().items||[]) : [];
+    items.unshift(Object.assign({}, summary, { archivedAt: Date.now() }));
+    if(items.length>50) items.length = 50;
+    tx.set(historyRef, { items });
+  });
+  historyItems = null; // 다음에 다시 불러오게
+}
+
+async function startNewPoll(){
+  await pollRef.delete();
+}
+
+/* ==================== 결과 계산 ==================== */
+function computeResultsA(data){
+  const votes = data.votes || {};
+  const total = Object.keys(votes).length;
+  const activityCounts = {}; ACTIVITY_OPTS.forEach(a=>activityCounts[a]=0);
+  const foodCounts = {}; FOOD_OPTS.forEach(f=>foodCounts[f]=0);
+  const dateCounts = {}; (data.dates||[]).forEach(d=>dateCounts[d]=0);
+  let foodVoterTotal = 0;
+  const activityNotes = [];
+  const foodNotes = [];
+
+  Object.entries(votes).forEach(([name, v])=>{
+    (v.activities||[]).forEach(a=>{ if(activityCounts[a]!==undefined) activityCounts[a]++; });
+    (v.activityNotes||[]).forEach(note=> activityNotes.push({name, note}));
+    const needsFood = (v.activities||[]).some(a=>NEEDS_FOOD.includes(a));
+    if(needsFood && (v.foods||[]).length){
+      foodVoterTotal++;
+      v.foods.forEach(f=>{ foodCounts[f] = (foodCounts[f]||0)+1; });
+      (v.foodNotes||[]).forEach(note=> foodNotes.push({name, note}));
+    }
+    (v.dates||[]).forEach(d=>{ if(dateCounts[d]!==undefined) dateCounts[d]++; });
+  });
+
+  const maxActivity = Math.max(0, ...Object.values(activityCounts));
+  const maxFood = Math.max(0, ...Object.values(foodCounts));
+  const winnerActivities = ACTIVITY_OPTS.filter(a=>activityCounts[a]>0 && activityCounts[a]===maxActivity);
+  const winnerFoods = FOOD_OPTS.filter(f=>foodCounts[f]>0 && foodCounts[f]===maxFood);
+
+  const unanimousDates = total>0 ? (data.dates||[]).filter(d=>dateCounts[d]===total) : [];
+  const maxDateCount = Math.max(0, ...Object.values(dateCounts));
+  const sortedDates = (data.dates||[]).slice().sort((a,b)=> dateCounts[b]-dateCounts[a] || a.localeCompare(b));
+  const top3Dates = sortedDates.filter(d=>dateCounts[d]>0).slice(0,3);
+  const winnerDate = unanimousDates.length ? unanimousDates[0] : (top3Dates[0] || null);
+
+  return { total, activityCounts, foodCounts, foodVoterTotal, dateCounts, maxActivity, maxFood,
+           maxDateCount, unanimousDates, top3Dates, activityNotes, foodNotes,
+           winnerActivities, winnerFoods, winnerDate };
+}
+
+function computeRestoResults(data){
+  const votes = (data.restaurant && data.restaurant.votes) || {};
+  const options = (data.restaurant && data.restaurant.options) || [];
+  const total = Object.keys(votes).length;
+  const counts = {};
+  options.forEach(o=>counts[o.id]=0);
+  Object.values(votes).forEach(optId=>{ if(counts[optId]!==undefined) counts[optId]++; });
+  const max = Math.max(0, ...Object.values(counts));
+  const winnerId = options.find(o=>counts[o.id]>0 && counts[o.id]===max);
+  return { total, counts, winnerId: winnerId ? winnerId.id : null };
+}
+
+/* ==================== 렌더 진입점 ==================== */
+function render(){
+  const app = document.getElementById('app');
+  if(!firebaseReady){
+    app.innerHTML = `<div class="card" style="margin-top:40px;">
+      <div class="step-label" style="color:var(--red);">⚠️ Firebase 설정이 필요해요</div>
+      <p style="font-size:13.5px; color:var(--muted); margin-left:0;">
+      코드 상단의 <code>firebaseConfig</code> 값을 본인의 Firebase 프로젝트 정보로 채워주세요.
+      설정 방법은 채팅 답변을 참고해주세요.</p>
+    </div>`;
+    return;
+  }
+  if(showHistory){
+    if(historyItems===null){ app.innerHTML = `<div class="loading">기록 불러오는 중...</div>`; loadHistory(); return; }
+    app.innerHTML = renderHistory();
+    bindHistoryEvents();
+    return;
+  }
+  if(!docLoaded){ app.innerHTML = `<div class="loading">불러오는 중...</div>`; return; }
+  if(!currentDoc){
+    app.innerHTML = renderSetup();
+    bindSetupEvents();
+    return;
+  }
+  if(currentDoc.stage==='voting'){
+    app.innerHTML = renderVoting(currentDoc);
+    bindVotingEvents(currentDoc);
+  } else if(currentDoc.stage==='restaurant'){
+    app.innerHTML = renderRestaurant(currentDoc);
+    bindRestaurantEvents(currentDoc);
+  } else {
+    app.innerHTML = renderDone(currentDoc);
+    bindDoneEvents(currentDoc);
+  }
+}
+
+function heroBlock(subtitle, poll){
+  return `
+    <div class="hero">
+      <div class="hero-top"><span class="plane">✈️</span><h1 class="logo-text">회식비 쓸래?</h1></div>
+      <div class="dashed-path"></div>
+      ${poll ? `<div class="poll-title">${esc(poll.title)}</div>` : ''}
+      <p class="sub">${subtitle}</p>
+    </div>
+    <div class="topnav">
+      <button class="ghost-btn" id="nav-history-btn">📖 지난 회식 기록</button>
+    </div>
+  `;
+}
+function bindTopNav(){
+  const b = document.getElementById('nav-history-btn');
+  if(b) b.addEventListener('click', ()=>{ showHistory=true; historyItems=null; render(); });
+}
+
+/* ==================== 캘린더 렌더 ==================== */
+// mode: 'setup'  -> excludedSet 토글, weekdayOnly 시각 반영
+// mode: 'voting' -> allowedSet(후보일) 중에서만 selectedSet 토글
+function renderCalendar(monthStr, opts){
+  const { mode, excludedSet, weekdayOnly, allowedSet, selectedSet } = opts;
+  const dates = monthDates(monthStr);
+  const firstDow = new Date(monthStr+'-01T00:00:00').getDay();
+  let cells = '';
+  for(let i=0;i<firstDow;i++) cells += `<div class="cal-day blank"></div>`;
+  dates.forEach(({iso, day, dow})=>{
+    if(mode==='setup'){
+      const weekend = (dow===0||dow===6);
+      const excluded = excludedSet.has(iso) || (weekdayOnly && weekend);
+      cells += `<div class="cal-day ${excluded?'excluded':'selected'}" data-date="${iso}">${day}</div>`;
+    } else {
+      const allowed = allowedSet.has(iso);
+      const selected = selectedSet.has(iso);
+      cells += `<div class="cal-day ${!allowed?'disabled':''} ${selected?'selected':''}" data-date="${iso}" ${!allowed?'data-disabled="1"':''}>${day}</div>`;
+    }
+  });
+  return `
+    <div class="cal-head"><span class="cal-month">${monthStr.split('-')[0]}년 ${Number(monthStr.split('-')[1])}월</span></div>
+    <div class="cal-grid">
+      ${DOW.map(d=>`<div class="cal-dow">${d}</div>`).join('')}
+      ${cells}
+    </div>
+  `;
+}
+
+/* ==================== SETUP 화면 ==================== */
+function renderSetup(){
+  return `
+    ${heroBlock('새 회식 투표를 만들어보세요')}
+    <div class="setup-note">💡 이번 달 복지회식비를 다 써야 한다면, 아래에서 해당 월을 고르면 그 달의 모든 날짜가 후보로 자동 등록돼요. 공휴일 등 제외하고 싶은 날짜는 달력에서 눌러서 빼주세요.</div>
+
+    <div class="card">
+      <div class="step-label"><span class="step-num">1</span> 투표 제목</div>
+      <div style="margin-left:38px;"><input type="text" id="setup-title" value="${esc(setupState.title)}"></div>
+    </div>
+
+    <div class="card">
+      <div class="step-label"><span class="step-num">2</span> 팀원 총 인원</div>
+      <p class="step-desc">투표 진행률 표시에 사용돼요</p>
+      <div style="margin-left:38px;"><input type="number" id="setup-teamsize" min="1" value="${setupState.teamSize}"></div>
+    </div>
+
+    <div class="card">
+      <div class="step-label"><span class="step-num">3</span> 회식 후보 월 & 날짜</div>
+      <p class="step-desc">달력에서 제외하고 싶은 날짜를 눌러서 빼주세요</p>
+      <div style="margin-left:38px;"><input type="month" id="setup-month" value="${setupState.month}"></div>
+      <label class="checkbox-label"><input type="checkbox" id="setup-weekday" ${setupState.weekdayOnly?'checked':''}> 주말(토·일) 자동 제외</label>
+      <div style="margin-top:14px;">${renderCalendar(setupState.month, {mode:'setup', excludedSet:setupState.excluded, weekdayOnly:setupState.weekdayOnly})}</div>
+      <div class="error-text" id="setup-error" style="display:none;"></div>
+    </div>
+
+    <button class="submit-btn" id="start-poll-btn">투표 시작하기</button>
+  `;
+}
+function bindSetupEvents(){
+  bindTopNav();
+  document.getElementById('setup-title').addEventListener('input', e=> setupState.title = e.target.value );
+  document.getElementById('setup-teamsize').addEventListener('input', e=> setupState.teamSize = Math.max(1, parseInt(e.target.value)||1) );
+  document.getElementById('setup-month').addEventListener('change', e=>{ setupState.month = e.target.value; setupState.excluded = new Set(); render(); });
+  document.getElementById('setup-weekday').addEventListener('change', e=>{ setupState.weekdayOnly = e.target.checked; render(); });
+
+  document.querySelectorAll('.cal-day[data-date]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const iso = el.dataset.date;
+      if(setupState.excluded.has(iso)) setupState.excluded.delete(iso); else setupState.excluded.add(iso);
+      render();
+    });
+  });
+
+  document.getElementById('start-poll-btn').addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    const errEl = document.getElementById('setup-error');
+    const title = setupState.title.trim() || '우리팀 회식';
+    const candidates = monthDates(setupState.month)
+      .filter(({iso,dow})=> !setupState.excluded.has(iso) && !(setupState.weekdayOnly && (dow===0||dow===6)))
+      .map(d=>d.iso);
+    if(candidates.length===0){
+      errEl.textContent = '후보 날짜가 최소 1개는 있어야 해요.';
+      errEl.style.display = 'block';
+      return;
+    }
+    errEl.style.display='none';
+    btn.disabled = true; btn.textContent = '만드는 중...';
+    try{
+      await createPoll({ title, teamSize: setupState.teamSize, month: setupState.month, dates: candidates });
+    }catch(e){
+      console.error(e);
+      errEl.textContent = '투표 생성에 실패했어요. Firebase 설정을 확인해주세요.';
+      errEl.style.display = 'block';
+      btn.disabled = false; btn.textContent = '투표 시작하기';
+    }
+  });
+}
+
+/* ==================== VOTING 화면 (1차: 활동/메뉴/날짜) ==================== */
+function renderVoting(doc){
+  const res = computeResultsA(doc);
+  const showFood = [...voteForm.activities].some(a=>NEEDS_FOOD.includes(a));
+  const dateSet = new Set(doc.dates||[]);
+  const pct = Math.min(100, Math.round(res.total / doc.teamSize * 100));
+
+  return `
+    ${heroBlock('활동 · 메뉴 · 날짜를 한 번에 투표해요', doc)}
+
+    <div class="progress-wrap">
+      <div class="progress-label">${res.total} / ${doc.teamSize}명 투표완료</div>
+      <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+    </div>
+
+    <div class="card">
+      <div class="step-label"><span class="step-num">1</span> 이름</div>
+      <div style="margin-left:38px;"><input type="text" id="form-name" placeholder="이름을 입력해주세요" value="${esc(voteForm.name)}"></div>
+    </div>
+
+    <div class="card">
+      <div class="step-label"><span class="step-num">2</span> 어떤 활동을 하고 싶나요?</div>
+      <p class="step-desc">여러 개 선택 가능 · 최다 득표 항목으로 결정돼요</p>
+      <div class="option-grid" id="activity-grid">
+        ${ACTIVITY_OPTS.map(a=>`<div class="option-pill ${voteForm.activities.has(a)?'selected':''}" data-val="${esc(a)}">${esc(a)}</div>`).join('')}
+      </div>
+      ${voteForm.activities.has('기타 활동') ? renderOtherBlock('activity') : ''}
+    </div>
+
+    ${showFood ? `
+    <div class="card" id="food-card">
+      <div class="step-label"><span class="step-num">3</span> 먹고 싶은 메뉴는?</div>
+      <p class="step-desc">여러 개 선택 가능 · 최다 득표 항목으로 결정돼요</p>
+      <div class="option-grid" id="food-grid">
+        ${FOOD_OPTS.map(f=>`<div class="option-pill ${voteForm.foods.has(f)?'selected':''}" data-val="${esc(f)}">${esc(f)}</div>`).join('')}
+      </div>
+      ${voteForm.foods.has('기타') ? renderOtherBlock('food') : ''}
+    </div>` : ''}
+
+    <div class="card">
+      <div class="step-label"><span class="step-num">${showFood?4:3}</span> 참여 가능한 날짜</div>
+      <p class="step-desc">가능한 날짜를 달력에서 모두 눌러주세요 · 전원 가능한 날짜가 최종 선정돼요</p>
+      ${renderCalendar(doc.month, {mode:'voting', allowedSet:dateSet, selectedSet:voteForm.dates})}
+      <div class="error-text" id="form-error" style="display:none;"></div>
+    </div>
+
+    <button class="submit-btn" id="submit-vote-btn">${editingName?'투표 수정하기':'투표 제출하기'}</button>
+
+    <div class="divider-title"><span>지금까지 결과</span></div>
+    ${res.total===0 ? `<p class="empty-note">아직 투표한 사람이 없어요.</p>` : `
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">🍽 활동</div>
+      ${ACTIVITY_OPTS.map(a=>{
+        const c = res.activityCounts[a];
+        const pct2 = res.total ? Math.min(100, Math.round(c/res.total*100)) : 0;
+        const win = c>0 && c===res.maxActivity;
+        return `<div class="bar-row"><div class="bar-label"><span>${esc(a)} ${win?'<span class="win">🏆 선정</span>':''}</span><span>${c}표</span></div><div class="bar-track"><div class="bar-fill" style="width:${pct2}%"></div></div></div>`;
+      }).join('')}
+      ${res.activityNotes.length ? `<div class="hint">💬 ${res.activityNotes.map(n=>`${esc(n.name)}: ${esc(n.note)}`).join(' · ')}</div>` : ''}
+    </div>
+    ${res.foodVoterTotal>0 ? `
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">🍚 메뉴</div>
+      ${FOOD_OPTS.map(f=>{
+        const c = res.foodCounts[f];
+        const pct2 = res.foodVoterTotal ? Math.min(100, Math.round(c/res.foodVoterTotal*100)) : 0;
+        const win = c>0 && c===res.maxFood;
+        return `<div class="bar-row"><div class="bar-label"><span>${esc(f)} ${win?'<span class="win">🏆 선정</span>':''}</span><span>${c}표</span></div><div class="bar-track"><div class="bar-fill" style="width:${pct2}%"></div></div></div>`;
+      }).join('')}
+      ${res.foodNotes.length ? `<div class="hint">💬 ${res.foodNotes.map(n=>`${esc(n.name)}: ${esc(n.note)}`).join(' · ')}</div>` : ''}
+    </div>` : ''}
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">📅 날짜 TOP 3</div>
+      ${res.top3Dates.length===0 ? `<p class="empty-note" style="padding:4px 0;">아직 선택된 날짜가 없어요.</p>` :
+        res.top3Dates.map(d=>{
+          const {md,dow} = fmtDate(d);
+          const c = res.dateCounts[d];
+          const isUnanimous = res.unanimousDates.includes(d);
+          return `<div class="date-result-row ${isUnanimous?'unanimous':''}">
+            <span class="dinfo">${md}<span class="dow">${dow}요일</span></span>
+            <span style="display:flex; align-items:center; gap:8px;">
+              <span class="badge-count">${c}/${res.total}명 가능</span>
+              ${isUnanimous?'<span class="stamp">만장일치</span>':''}
+            </span>
+          </div>`;
+        }).join('')}
+    </div>
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">🙋 투표한 사람 (${res.total}명)</div>
+      <div class="voter-list">
+        ${Object.keys(doc.votes||{}).map(n=>`<span class="voter-tag">${esc(n)} <button data-name="${esc(n)}" class="edit-vote">수정</button></span>`).join('')}
+      </div>
+    </div>
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">🔒 관리자</div>
+      <p class="step-desc" style="margin-left:0;">모두 투표를 마쳤다면 1차 투표를 마감해서 다음 단계로 넘어가세요.</p>
+      ${closeConfirming ? `
+        <div style="color:var(--red); font-size:13px; margin-bottom:10px;">정말 마감할까요? 이후에는 활동/메뉴/날짜 투표를 더 받을 수 없어요.</div>
+        <button class="ghost-btn" id="close-cancel-btn" style="margin-right:8px;">취소</button>
+        <button class="admin-btn" id="close-confirm-btn">마감 확정</button>
+      ` : `<button class="admin-btn" id="close-stageA-btn">1차 투표 마감하기</button>`}
+    </div>
+    `}
+    <div class="footer-note">Firestore로 실시간 동기화돼요 · 팀원 링크만 공유하면 끝!</div>
+  `;
+}
+
+function renderOtherBlock(kind){
+  const list = kind==='activity' ? voteForm.activityNotes : voteForm.foodNotes;
+  const inputVal = kind==='activity' ? voteForm.activityNoteInput : voteForm.foodNoteInput;
+  const placeholder = kind==='activity' ? '하고 싶은 활동을 적고 추가를 눌러주세요' : '먹고 싶은 메뉴를 적고 추가를 눌러주세요';
+  return `
+    <div class="other-input">
+      <div class="other-add-row">
+        <input type="text" id="${kind}-note-input" placeholder="${placeholder}" value="${esc(inputVal)}">
+        <button id="${kind}-note-add-btn">추가</button>
+      </div>
+      ${list.length ? `<div class="other-chip-row">${list.map((n,i)=>`<span class="other-chip">${esc(n)} <button data-kind="${kind}" data-idx="${i}" class="rm-other">✕</button></span>`).join('')}</div>` : ''}
+    </div>
+  `;
+}
+
+function bindVotingEvents(doc){
+  bindTopNav();
+  document.getElementById('form-name').addEventListener('input', e=> voteForm.name = e.target.value );
+
+  document.querySelectorAll('#activity-grid .option-pill').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const val = el.dataset.val;
+      if(voteForm.activities.has(val)) voteForm.activities.delete(val); else voteForm.activities.add(val);
+      if(!voteForm.activities.has('기타 활동')) voteForm.activityNotes = [];
+      if(![...voteForm.activities].some(a=>NEEDS_FOOD.includes(a))){ voteForm.foods=new Set(); voteForm.foodNotes=[]; }
+      render();
+    });
+  });
+  bindOtherEvents('activity');
+
+  const foodGrid = document.getElementById('food-grid');
+  if(foodGrid){
+    foodGrid.querySelectorAll('.option-pill').forEach(el=>{
+      el.addEventListener('click', ()=>{
+        const val = el.dataset.val;
+        if(voteForm.foods.has(val)) voteForm.foods.delete(val); else voteForm.foods.add(val);
+        if(!voteForm.foods.has('기타')) voteForm.foodNotes = [];
+        render();
+      });
+    });
+  }
+  bindOtherEvents('food');
+
+  document.querySelectorAll('.cal-day[data-date]:not([data-disabled])').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const d = el.dataset.date;
+      if(voteForm.dates.has(d)) voteForm.dates.delete(d); else voteForm.dates.add(d);
+      render();
+    });
+  });
+
+  document.getElementById('submit-vote-btn').addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    const errEl = document.getElementById('form-error');
+    const name = voteForm.name.trim();
+    const needsFood = [...voteForm.activities].some(a=>NEEDS_FOOD.includes(a));
+    if(!name){ errEl.textContent='이름을 입력해주세요.'; errEl.style.display='block'; return; }
+    if(voteForm.activities.size===0){ errEl.textContent='활동을 1개 이상 선택해주세요.'; errEl.style.display='block'; return; }
+    if(voteForm.activities.has('기타 활동') && voteForm.activityNotes.length===0){ errEl.textContent='기타 활동을 최소 1개 추가해주세요.'; errEl.style.display='block'; return; }
+    if(needsFood && voteForm.foods.size===0){ errEl.textContent='메뉴를 1개 이상 선택해주세요.'; errEl.style.display='block'; return; }
+    if(voteForm.foods.has('기타') && voteForm.foodNotes.length===0){ errEl.textContent='기타 메뉴를 최소 1개 추가해주세요.'; errEl.style.display='block'; return; }
+    if(voteForm.dates.size===0){ errEl.textContent='가능한 날짜를 1개 이상 선택해주세요.'; errEl.style.display='block'; return; }
+
+    errEl.style.display='none';
+    btn.disabled=true; btn.textContent='저장 중...';
+    const voteData = {
+      activities: Array.from(voteForm.activities), activityNotes: voteForm.activityNotes.slice(),
+      foods: Array.from(voteForm.foods), foodNotes: voteForm.foodNotes.slice(),
+      dates: Array.from(voteForm.dates)
+    };
+    try{
+      await saveVote(name, voteData, editingName);
+      editingName = null;
+      voteForm = emptyVoteForm();
+    }catch(e){
+      console.error(e);
+      errEl.textContent = '저장에 실패했어요. 인터넷 연결을 확인하고 다시 시도해주세요.';
+      errEl.style.display='block';
+      btn.disabled=false; btn.textContent = editingName?'투표 수정하기':'투표 제출하기';
+    }
+  });
+
+  document.querySelectorAll('.edit-vote').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const n = btn.dataset.name;
+      const v = doc.votes[n];
+      editingName = n;
+      voteForm = {
+        name:n, activities:new Set(v.activities||[]), activityNotes:(v.activityNotes||[]).slice(), activityNoteInput:'',
+        foods:new Set(v.foods||[]), foodNotes:(v.foodNotes||[]).slice(), foodNoteInput:'',
+        dates:new Set(v.dates||[])
+      };
+      render();
+      window.scrollTo({top:0, behavior:'smooth'});
+    });
+  });
+
+  const closeBtn = document.getElementById('close-stageA-btn');
+  if(closeBtn) closeBtn.addEventListener('click', ()=>{ closeConfirming=true; render(); });
+  const cancelBtn = document.getElementById('close-cancel-btn');
+  if(cancelBtn) cancelBtn.addEventListener('click', ()=>{ closeConfirming=false; render(); });
+  const confirmBtn = document.getElementById('close-confirm-btn');
+  if(confirmBtn) confirmBtn.addEventListener('click', async (ev)=>{
+    const b = ev.currentTarget;
+    b.disabled=true; b.textContent='마감 중...';
+    try{ await closeStageA(); }
+    catch(e){ console.error(e); b.disabled=false; b.textContent='마감 확정'; }
+    closeConfirming=false;
+  });
+}
+
+function bindOtherEvents(kind){
+  const input = document.getElementById(`${kind}-note-input`);
+  if(input) input.addEventListener('input', e=>{
+    if(kind==='activity') voteForm.activityNoteInput = e.target.value; else voteForm.foodNoteInput = e.target.value;
+  });
+  const addBtn = document.getElementById(`${kind}-note-add-btn`);
+  if(addBtn) addBtn.addEventListener('click', ()=>{
+    const val = (kind==='activity'?voteForm.activityNoteInput:voteForm.foodNoteInput).trim();
+    if(!val) return;
+    if(kind==='activity'){ voteForm.activityNotes.push(val); voteForm.activityNoteInput=''; }
+    else { voteForm.foodNotes.push(val); voteForm.foodNoteInput=''; }
+    render();
+  });
+  document.querySelectorAll(`.rm-other[data-kind="${kind}"]`).forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const idx = parseInt(el.dataset.idx);
+      if(kind==='activity') voteForm.activityNotes.splice(idx,1); else voteForm.foodNotes.splice(idx,1);
+      render();
+    });
+  });
+}
+
+/* ==================== RESTAURANT 화면 (2차) ==================== */
+function renderRestaurant(doc){
+  const res = doc.resultsA;
+  const restoRes = computeRestoResults(doc);
+  const options = (doc.restaurant && doc.restaurant.options) || [];
+  const votes = (doc.restaurant && doc.restaurant.votes) || {};
+  const pct = Math.min(100, Math.round(restoRes.total / doc.teamSize * 100));
+  const dateInfo = res.winnerDate ? fmtDate(res.winnerDate) : null;
+
+  return `
+    ${heroBlock('1차 투표 결과에 따라 식당을 정해요', doc)}
+
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">✅ 1차 투표 확정 결과</div>
+      <div class="final-row"><span>활동</span><b>${res.winnerActivities.map(esc).join(', ')||'-'}</b></div>
+      ${res.winnerFoods.length?`<div class="final-row"><span>메뉴</span><b>${res.winnerFoods.map(esc).join(', ')}</b></div>`:''}
+      <div class="final-row"><span>날짜</span><b>${dateInfo? `${dateInfo.md} (${dateInfo.dow})` : '미정'}</b></div>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-label">${restoRes.total} / ${doc.teamSize}명 식당 투표완료</div>
+      <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+    </div>
+
+    <div class="card">
+      <div class="step-label"><span class="step-num">1</span> 식당 후보 추가하기</div>
+      <p class="step-desc">가고 싶은 식당을 자유롭게 추가해주세요</p>
+      <div style="margin-left:38px;" class="other-add-row">
+        <input type="text" id="resto-name-input" placeholder="식당 이름" value="${esc(restaurantForm.newOptionName)}">
+        <button id="resto-add-btn">추가</button>
+      </div>
+      <div style="margin-left:38px; margin-top:8px;">
+        <input type="text" id="resto-note-input" placeholder="메모(위치, 링크 등, 선택)" value="${esc(restaurantForm.newOptionNote)}">
+      </div>
+      ${restoAddError ? `<div class="error-text">${esc(restoAddError)}</div>` : ''}
+    </div>
+
+    <div class="card">
+      <div class="step-label"><span class="step-num">2</span> 이름</div>
+      <div style="margin-left:38px;"><input type="text" id="resto-voter-name" placeholder="이름을 입력해주세요" value="${esc(restaurantForm.name)}"></div>
+    </div>
+
+    <div class="card">
+      <div class="step-label"><span class="step-num">3</span> 가고 싶은 식당에 투표</div>
+      ${options.length===0 ? `<p class="empty-note">아직 등록된 식당이 없어요. 위에서 먼저 추가해주세요.</p>` :
+        options.map(o=>`
+          <div class="resto-pill ${restaurantForm.selectedOptionId===o.id?'selected':''}" data-id="${o.id}">
+            <div><div class="r-name">${esc(o.name)}</div>${o.note?`<div class="r-note">${esc(o.note)}</div>`:''}</div>
+            <div class="badge-count">${restoRes.counts[o.id]||0}표</div>
+          </div>
+        `).join('')}
+      <div class="error-text" id="resto-vote-error" style="display:none;"></div>
+      <button class="submit-btn" id="resto-submit-btn">${editingRestoVoter?'투표 수정하기':'식당 투표하기'}</button>
+    </div>
+
+    ${restoRes.total>0 ? `
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">🙋 식당 투표한 사람 (${restoRes.total}명)</div>
+      <div class="voter-list">
+        ${Object.keys(votes).map(n=>`<span class="voter-tag">${esc(n)} <button data-name="${esc(n)}" class="edit-resto-vote">수정</button></span>`).join('')}
+      </div>
+    </div>` : ''}
+
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">🔒 관리자: 식당 & 시간 확정</div>
+      <p class="step-desc" style="margin-left:0;">최다 득표 식당이 기본 선택돼요. 필요하면 직접 바꿔도 돼요.</p>
+      <div class="option-grid" style="margin-left:0;">
+        ${options.map(o=>`<div class="option-pill finalize-pill ${finalizeForm.optionId===o.id?'selected':''}" data-id="${o.id}">${esc(o.name)}</div>`).join('')}
+      </div>
+      <div style="margin-top:12px;"><input type="time" id="finalize-time" value="${esc(finalizeForm.time)}"></div>
+      <div class="error-text" id="finalize-error" style="display:none;"></div>
+      ${restoCloseConfirming ? `
+        <div style="color:var(--red); font-size:13px; margin:10px 0;">정말 확정할까요? 이후에는 식당 투표를 더 받을 수 없어요.</div>
+        <button class="ghost-btn" id="finalize-cancel-btn" style="margin-right:8px;">취소</button>
+        <button class="admin-btn" id="finalize-confirm-btn">최종 확정</button>
+      ` : `<button class="admin-btn" id="finalize-btn" style="margin-top:12px;">식당 & 시간 확정하기</button>`}
+    </div>
+  `;
+}
+
+function bindRestaurantEvents(doc){
+  bindTopNav();
+  const options = (doc.restaurant && doc.restaurant.options) || [];
+  const restoRes = computeRestoResults(doc);
+  if(finalizeForm.optionId===null && restoRes.winnerId) finalizeForm.optionId = restoRes.winnerId;
+
+  document.getElementById('resto-name-input').addEventListener('input', e=> restaurantForm.newOptionName=e.target.value );
+  document.getElementById('resto-note-input').addEventListener('input', e=> restaurantForm.newOptionNote=e.target.value );
+  document.getElementById('resto-add-btn').addEventListener('click', async ()=>{
+    const name = restaurantForm.newOptionName.trim();
+    if(!name){ restoAddError='식당 이름을 입력해주세요.'; render(); return; }
+    restoAddError='';
+    try{
+      await addRestaurantOption(name, restaurantForm.newOptionNote.trim());
+      restaurantForm.newOptionName=''; restaurantForm.newOptionNote='';
+    }catch(e){ console.error(e); restoAddError='추가에 실패했어요.'; render(); }
+  });
+
+  document.getElementById('resto-voter-name').addEventListener('input', e=> restaurantForm.name=e.target.value );
+
+  document.querySelectorAll('.resto-pill[data-id]').forEach(el=>{
+    el.addEventListener('click', ()=>{ restaurantForm.selectedOptionId = el.dataset.id; render(); });
+  });
+
+  document.getElementById('resto-submit-btn').addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    const errEl = document.getElementById('resto-vote-error');
+    const name = restaurantForm.name.trim();
+    if(!name){ errEl.textContent='이름을 입력해주세요.'; errEl.style.display='block'; return; }
+    if(!restaurantForm.selectedOptionId){ errEl.textContent='식당을 선택해주세요.'; errEl.style.display='block'; return; }
+    errEl.style.display='none';
+    btn.disabled=true; btn.textContent='저장 중...';
+    try{
+      await saveRestoVote(name, restaurantForm.selectedOptionId, editingRestoVoter);
+      editingRestoVoter=null;
+      restaurantForm = { name:'', newOptionName:'', newOptionNote:'', selectedOptionId:null };
+    }catch(e){
+      console.error(e);
+      errEl.textContent='저장에 실패했어요.'; errEl.style.display='block';
+      btn.disabled=false; btn.textContent=editingRestoVoter?'투표 수정하기':'식당 투표하기';
+    }
+  });
+
+  document.querySelectorAll('.edit-resto-vote').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const n = btn.dataset.name;
+      editingRestoVoter = n;
+      restaurantForm = { name:n, newOptionName:'', newOptionNote:'', selectedOptionId: doc.restaurant.votes[n] || null };
+      render();
+      window.scrollTo({top:0, behavior:'smooth'});
+    });
+  });
+
+  document.querySelectorAll('.finalize-pill').forEach(el=>{
+    el.addEventListener('click', ()=>{ finalizeForm.optionId = el.dataset.id; render(); });
+  });
+  document.getElementById('finalize-time').addEventListener('input', e=> finalizeForm.time = e.target.value );
+
+  const fbtn = document.getElementById('finalize-btn');
+  if(fbtn) fbtn.addEventListener('click', ()=>{
+    const errEl = document.getElementById('finalize-error');
+    if(!finalizeForm.optionId){ errEl.textContent='식당을 선택해주세요.'; errEl.style.display='block'; return; }
+    errEl.style.display='none';
+    restoCloseConfirming = true; render();
+  });
+  const fcancel = document.getElementById('finalize-cancel-btn');
+  if(fcancel) fcancel.addEventListener('click', ()=>{ restoCloseConfirming=false; render(); });
+  const fconfirm = document.getElementById('finalize-confirm-btn');
+  if(fconfirm) fconfirm.addEventListener('click', async (ev)=>{
+    const b = ev.currentTarget;
+    b.disabled=true; b.textContent='확정 중...';
+    try{ await finalizeRestaurant(finalizeForm.optionId, finalizeForm.time); }
+    catch(e){ console.error(e); b.disabled=false; b.textContent='최종 확정'; }
+    restoCloseConfirming=false;
+  });
+}
+
+/* ==================== DONE 화면 (최종 확정) ==================== */
+function renderDone(doc){
+  const s = doc.finalSummary || {};
+  const dateInfo = s.date ? fmtDate(s.date) : null;
+  return `
+    ${heroBlock('이번 회식이 확정됐어요 🎉', doc)}
+    <div class="final-card">
+      <div class="tag">CONFIRMED</div>
+      <h2>${dateInfo ? `${dateInfo.md} (${dateInfo.dow}요일)` : '날짜 미정'}</h2>
+      <div class="final-row"><span>활동</span><b>${(s.activities||[]).map(esc).join(', ')||'-'}</b></div>
+      ${s.foods && s.foods.length ? `<div class="final-row"><span>메뉴</span><b>${s.foods.map(esc).join(', ')}</b></div>` : ''}
+      ${s.restaurantName ? `<div class="final-row"><span>식당</span><b>${esc(s.restaurantName)}</b></div>` : ''}
+      ${s.time ? `<div class="final-row"><span>시간</span><b>${esc(s.time)}</b></div>` : ''}
+    </div>
+    <div class="footer-note">
+      이번 결과는 지난 회식 기록에도 자동으로 저장됐어요.<br>
+      ${newPollConfirming ? `
+        <div style="margin-top:10px;">
+          <div style="color:var(--red); font-size:13px; margin-bottom:10px;">새 투표를 시작하면 이번 화면은 사라져요 (기록은 남아요).</div>
+          <button class="ghost-btn" id="newpoll-cancel-btn" style="margin-right:8px;">취소</button>
+          <button class="admin-btn" id="newpoll-confirm-btn">새 투표 시작</button>
+        </div>
+      ` : `<button class="admin-btn" id="newpoll-btn" style="margin-top:10px;">🔒 새 회식 투표 시작하기</button>`}
+    </div>
+  `;
+}
+function bindDoneEvents(doc){
+  bindTopNav();
+  const b = document.getElementById('newpoll-btn');
+  if(b) b.addEventListener('click', ()=>{ newPollConfirming=true; render(); });
+  const cancel = document.getElementById('newpoll-cancel-btn');
+  if(cancel) cancel.addEventListener('click', ()=>{ newPollConfirming=false; render(); });
+  const confirm = document.getElementById('newpoll-confirm-btn');
+  if(confirm) confirm.addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    btn.disabled=true; btn.textContent='시작하는 중...';
+    setupState = { title:'우리팀 회식', teamSize: doc.teamSize||8, month: defaultMonth(), weekdayOnly:true, excluded:new Set() };
+    try{ await startNewPoll(); }catch(e){ console.error(e); }
+    newPollConfirming=false;
+  });
+}
+
+/* ==================== HISTORY 화면 ==================== */
+function renderHistory(){
+  const items = historyItems || [];
+  return `
+    ${heroBlock('지난 회식 기록')}
+    <div class="topnav" style="justify-content:flex-start; margin-top:-6px;">
+      <button class="ghost-btn" id="back-btn">← 돌아가기</button>
+    </div>
+    ${items.length===0 ? `<p class="empty-note">아직 기록된 회식이 없어요.</p>` :
+      items.map(it=>{
+        const d = it.date ? fmtDate(it.date) : null;
+        return `<div class="history-item">
+          <div class="h-date">${d?`${d.md} (${d.dow})`:'날짜 미정'} ${it.title?`· ${esc(it.title)}`:''}</div>
+          <div class="h-meta">
+            ${(it.activities||[]).map(esc).join(', ')||'-'}
+            ${it.foods && it.foods.length ? ` · ${it.foods.map(esc).join(', ')}` : ''}
+            ${it.restaurantName ? ` · 🍽 ${esc(it.restaurantName)}` : ''}
+            ${it.time ? ` · 🕐 ${esc(it.time)}` : ''}
+          </div>
+        </div>`;
+      }).join('')}
+  `;
+}
+function bindHistoryEvents(){
+  document.getElementById('back-btn').addEventListener('click', ()=>{ showHistory=false; render(); });
+}
+
+/* ==================== 시작 ==================== */
+if(firebaseReady){
+  pollRef.onSnapshot(snap=>{
+    currentDoc = snap.exists ? snap.data() : null;
+    docLoaded = true;
+    render();
+  }, err=>{
+    console.error('poll listen error', err);
+    docLoaded = true;
+    render();
+  });
+} else {
+  render();
+}
+</script>
+</body>
+</html>
