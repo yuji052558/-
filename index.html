@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BOKPICK</title>
+<title>회식 투표</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Do+Hyeon&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
 
@@ -87,8 +87,8 @@
   }
   .hero-badge{
     position:absolute;
-    top:-14px; right:-6px;
-    width:96px; height:96px;
+    top:-22px; right:-22px;
+    width:92px; height:92px;
     background: var(--white);
     border: 2.5px solid var(--ink);
     border-radius: 50%;
@@ -96,8 +96,12 @@
     text-align:center;
     font-size:10.5px; font-weight:800; line-height:1.25;
     padding:6px;
-    transform: rotate(9deg);
     color: var(--ink);
+    animation: badge-spin 9s linear infinite;
+  }
+  @keyframes badge-spin{
+    from{ transform: rotate(0deg); }
+    to{ transform: rotate(360deg); }
   }
   .hero .dashed-path{
     position:relative;
@@ -306,6 +310,24 @@
   .history-item .h-date{ font-family:'Do Hyeon', sans-serif; font-size:15px; color:var(--blue); }
   .history-item .h-meta{ font-size:12.5px; color:var(--muted); margin-top:4px; }
 
+  /* ---------- ROULETTE ---------- */
+  .roulette-wrap{ position:relative; display:flex; flex-direction:column; align-items:center; margin-top:6px; }
+  .roulette-pointer{ font-size:24px; color:var(--red); margin-bottom:-6px; z-index:2; }
+  .roulette-wheel-outer{
+    position:relative; width:240px; height:240px; border-radius:50%;
+    border:4px solid var(--ink); overflow:hidden; background:var(--white);
+  }
+  .roulette-wheel{
+    position:absolute; inset:0; border-radius:50%;
+  }
+  .wheel-label{
+    position:absolute; top:50%; left:50%; width:0; height:0;
+  }
+  .wheel-label span{
+    position:absolute; left:0; top:-96px; transform:translateX(-50%);
+    font-size:11px; font-weight:800; white-space:nowrap; max-width:70px; overflow:hidden; text-overflow:ellipsis;
+  }
+
   .footer-note{ text-align:center; color: var(--muted); font-size:12px; margin-top:26px; }
   .loading{ text-align:center; padding:60px 0; color: var(--muted); }
   .setup-note{
@@ -337,12 +359,22 @@ try{
 }
 const pollRef = firebaseReady ? db.collection('polls').doc('current') : null;
 const historyRef = firebaseReady ? db.collection('polls').doc('history') : null;
+const feedbackRef = firebaseReady ? db.collection('polls').doc('feedback') : null;
 
 /* ==================== 전역 상태 ==================== */
 let currentDoc = null;
 let docLoaded = false;
 let historyItems = null; // null = 아직 로드 안 함
 let showHistory = false;
+let showFeedback = false;
+let feedbackItems = null;
+let feedbackForm = { name:'', message:'' };
+let showRoulette = false;
+let rouletteNames = [];
+let rouletteNameInput = '';
+let rouletteSpinning = false;
+let rouletteRotation = 0;
+let rouletteWinner = null;
 
 let setupState = {
   title: '우리팀 회식',
@@ -355,9 +387,13 @@ let setupState = {
 let voteForm = emptyVoteForm();
 let editingName = null;
 let closeConfirming = false;
+let teamSizeEditVal = null;
 
 let restaurantForm = { name:'', newOptionName:'', newOptionNote:'', selectedOptionId:null };
+let naverBudget = '';
+let naverGeoError = '';
 let editingRestoVoter = null;
+
 let restoAddError = '';
 let finalizeForm = { time:'', optionId:null };
 let restoCloseConfirming = false;
@@ -405,6 +441,28 @@ async function loadHistory(){
   render();
 }
 
+async function loadFeedback(){
+  if(!firebaseReady) return;
+  try{
+    const snap = await feedbackRef.get();
+    feedbackItems = snap.exists ? (snap.data().items||[]) : [];
+  }catch(e){
+    console.error(e);
+    feedbackItems = [];
+  }
+  render();
+}
+
+async function submitFeedback(name, message){
+  await db.runTransaction(async (tx)=>{
+    const snap = await tx.get(feedbackRef);
+    const items = snap.exists ? (snap.data().items||[]) : [];
+    items.unshift({ name: name||'익명', message, createdAt: Date.now() });
+    if(items.length>100) items.length = 100;
+    tx.set(feedbackRef, { items });
+  });
+}
+
 async function createPoll(cfg){
   await pollRef.set({
     title: cfg.title, teamSize: cfg.teamSize, month: cfg.month, dates: cfg.dates,
@@ -412,6 +470,10 @@ async function createPoll(cfg){
     restaurant: { options:[], votes:{} },
     finalSummary: null, archived:false, createdAt: Date.now()
   });
+}
+
+async function updateTeamSize(newSize){
+  await pollRef.update({ teamSize: newSize });
 }
 
 async function saveVote(name, voteData, prevName){
@@ -578,6 +640,17 @@ function render(){
     bindHistoryEvents();
     return;
   }
+  if(showFeedback){
+    if(feedbackItems===null){ app.innerHTML = `<div class="loading">불러오는 중...</div>`; loadFeedback(); return; }
+    app.innerHTML = renderFeedback();
+    bindFeedbackEvents();
+    return;
+  }
+  if(showRoulette){
+    app.innerHTML = renderRoulette();
+    bindRouletteEvents();
+    return;
+  }
   if(!docLoaded){ app.innerHTML = `<div class="loading">불러오는 중...</div>`; return; }
   if(!currentDoc){
     app.innerHTML = renderSetup();
@@ -607,6 +680,8 @@ function heroBlock(subtitle, poll){
     </div>
     <div class="checker-divider"></div>
     <div class="topnav">
+      <button class="ghost-btn" id="nav-roulette-btn">🎡 룰렛</button>
+      <button class="ghost-btn" id="nav-feedback-btn">💬 피드백</button>
       <button class="ghost-btn" id="nav-history-btn">📖 지난 회식 기록</button>
     </div>
   `;
@@ -614,6 +689,10 @@ function heroBlock(subtitle, poll){
 function bindTopNav(){
   const b = document.getElementById('nav-history-btn');
   if(b) b.addEventListener('click', ()=>{ showHistory=true; historyItems=null; render(); });
+  const f = document.getElementById('nav-feedback-btn');
+  if(f) f.addEventListener('click', ()=>{ showFeedback=true; feedbackItems=null; render(); });
+  const r = document.getElementById('nav-roulette-btn');
+  if(r) r.addEventListener('click', ()=>{ showRoulette=true; render(); });
 }
 
 /* ==================== 캘린더 렌더 ==================== */
@@ -809,6 +888,11 @@ function renderVoting(doc){
     </div>
     <div class="card">
       <div class="step-label" style="font-size:16px;">🔒 관리자</div>
+      <p class="step-desc" style="margin-left:0;">팀원 총 인원이 바뀌었다면 여기서 수정할 수 있어요.</p>
+      <div class="other-add-row" style="margin-bottom:16px;">
+        <input type="number" id="teamsize-edit-input" min="1" value="${teamSizeEditVal===null?doc.teamSize:teamSizeEditVal}">
+        <button id="teamsize-save-btn">저장</button>
+      </div>
       <p class="step-desc" style="margin-left:0;">모두 투표를 마쳤다면 1차 투표를 마감해서 다음 단계로 넘어가세요.</p>
       ${closeConfirming ? `
         <div style="color:var(--red); font-size:13px; margin-bottom:10px;">정말 마감할까요? 이후에는 활동/메뉴/날짜 투표를 더 받을 수 없어요.</div>
@@ -918,6 +1002,18 @@ function bindVotingEvents(doc){
     });
   });
 
+  const teamsizeInput = document.getElementById('teamsize-edit-input');
+  if(teamsizeInput) teamsizeInput.addEventListener('input', e=>{ teamSizeEditVal = Math.max(1, parseInt(e.target.value)||1); });
+  const teamsizeSaveBtn = document.getElementById('teamsize-save-btn');
+  if(teamsizeSaveBtn) teamsizeSaveBtn.addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    const val = teamSizeEditVal===null ? doc.teamSize : teamSizeEditVal;
+    btn.disabled = true; btn.textContent='저장 중...';
+    try{ await updateTeamSize(val); }
+    catch(e){ console.error(e); }
+    btn.disabled = false; btn.textContent='저장';
+  });
+
   const closeBtn = document.getElementById('close-stageA-btn');
   if(closeBtn) closeBtn.addEventListener('click', ()=>{ closeConfirming=true; render(); });
   const cancelBtn = document.getElementById('close-cancel-btn');
@@ -976,6 +1072,17 @@ function renderRestaurant(doc){
     <div class="progress-wrap">
       <div class="progress-label">${restoRes.total} / ${doc.teamSize}명 식당 투표완료</div>
       <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+    </div>
+
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">📍 내 주변에서 찾아보기</div>
+      <p class="step-desc" style="margin-left:0;">현재 위치 기준으로 네이버지도에서 ${res.winnerFoods.length?esc(res.winnerFoods[0]):'맛집'}을 검색해요</p>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <input type="number" id="naver-budget-input" placeholder="인당 예산(원, 선택)" value="${esc(naverBudget)}" style="flex:1; min-width:140px;">
+        <button class="admin-btn" id="naver-search-btn">🗺️ 네이버지도에서 찾기</button>
+      </div>
+      ${naverGeoError ? `<div class="error-text" style="margin-left:0;">${esc(naverGeoError)}</div>` : ''}
+      <p class="hint">※ 위치 권한 허용이 필요해요. 예산은 검색어에 참고용으로만 반영돼요(정확한 가격 필터는 아니에요).</p>
     </div>
 
     <div class="card">
@@ -1039,6 +1146,37 @@ function bindRestaurantEvents(doc){
   const options = (doc.restaurant && doc.restaurant.options) || [];
   const restoRes = computeRestoResults(doc);
   if(finalizeForm.optionId===null && restoRes.winnerId) finalizeForm.optionId = restoRes.winnerId;
+
+  document.getElementById('naver-budget-input').addEventListener('input', e=> naverBudget = e.target.value );
+  document.getElementById('naver-search-btn').addEventListener('click', (ev)=>{
+    naverGeoError = '';
+    if(!navigator.geolocation){
+      naverGeoError = '이 브라우저에서는 위치 정보를 사용할 수 없어요.';
+      render();
+      return;
+    }
+    const btn = ev.currentTarget;
+    btn.disabled = true; btn.textContent = '위치 확인 중...';
+    navigator.geolocation.getCurrentPosition((pos)=>{
+      const { latitude, longitude } = pos.coords;
+      const food = (doc.resultsA && doc.resultsA.winnerFoods && doc.resultsA.winnerFoods[0]) || '맛집';
+      const budgetNum = parseInt(naverBudget);
+      let priceWord = '';
+      if(budgetNum){
+        if(budgetNum <= 10000) priceWord = '저렴한 ';
+        else if(budgetNum <= 20000) priceWord = '가성비 ';
+      }
+      const query = `${priceWord}${food} 맛집`;
+      const url = `https://map.naver.com/p/search/${encodeURIComponent(query)}?c=${longitude},${latitude},15,0,0,0,dh`;
+      window.open(url, '_blank');
+      btn.disabled = false; btn.textContent = '🗺️ 네이버지도에서 찾기';
+    }, (err)=>{
+      console.error(err);
+      naverGeoError = '위치 권한을 허용해주셔야 사용할 수 있어요.';
+      btn.disabled = false; btn.textContent = '🗺️ 네이버지도에서 찾기';
+      render();
+    });
+  });
 
   document.getElementById('resto-name-input').addEventListener('input', e=> restaurantForm.newOptionName=e.target.value );
   document.getElementById('resto-note-input').addEventListener('input', e=> restaurantForm.newOptionNote=e.target.value );
@@ -1178,6 +1316,163 @@ function renderHistory(){
 }
 function bindHistoryEvents(){
   document.getElementById('back-btn').addEventListener('click', ()=>{ showHistory=false; render(); });
+}
+
+/* ==================== 피드백 ==================== */
+function renderFeedback(){
+  const items = feedbackItems || [];
+  return `
+    ${heroBlock('웹 사이트 관련 피드백을 남겨주세요')}
+    <div class="topnav" style="justify-content:flex-start; margin-top:-6px;">
+      <button class="ghost-btn" id="back-btn">← 돌아가기</button>
+    </div>
+    <div class="card">
+      <div class="step-label"><span class="step-num">1</span> 이름 (선택)</div>
+      <div style="margin-left:38px;"><input type="text" id="feedback-name" placeholder="익명으로 남기려면 비워두세요" value="${esc(feedbackForm.name)}"></div>
+    </div>
+    <div class="card">
+      <div class="step-label"><span class="step-num">2</span> 어떤 점이 불편했나요?</div>
+      <p class="step-desc">버그, 개선 아이디어 뭐든 편하게 남겨주세요</p>
+      <div style="margin-left:38px;"><textarea id="feedback-message" rows="4" style="width:100%; padding:11px 13px; background:var(--cream); border:1.5px solid var(--line); border-radius:10px; font-family:inherit; font-size:14.5px; color:var(--ink);" placeholder="예: 모바일에서 달력이 잘려서 안 보여요">${esc(feedbackForm.message)}</textarea></div>
+      <div class="error-text" id="feedback-error" style="display:none;"></div>
+      <button class="submit-btn" id="feedback-submit-btn">피드백 남기기</button>
+    </div>
+    <div class="divider-title"><span>지금까지 남겨진 피드백</span></div>
+    ${items.length===0 ? `<p class="empty-note">아직 남겨진 피드백이 없어요.</p>` :
+      items.map(it=>`<div class="history-item">
+        <div class="h-date">${esc(it.name||'익명')}</div>
+        <div class="h-meta">${esc(it.message)}</div>
+      </div>`).join('')}
+  `;
+}
+function bindFeedbackEvents(){
+  document.getElementById('back-btn').addEventListener('click', ()=>{ showFeedback=false; render(); });
+  document.getElementById('feedback-name').addEventListener('input', e=> feedbackForm.name = e.target.value );
+  document.getElementById('feedback-message').addEventListener('input', e=> feedbackForm.message = e.target.value );
+  document.getElementById('feedback-submit-btn').addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    const errEl = document.getElementById('feedback-error');
+    const msg = feedbackForm.message.trim();
+    if(!msg){ errEl.textContent='내용을 입력해주세요.'; errEl.style.display='block'; return; }
+    errEl.style.display='none';
+    btn.disabled=true; btn.textContent='저장 중...';
+    try{
+      await submitFeedback(feedbackForm.name.trim(), msg);
+      feedbackForm = { name:'', message:'' };
+      feedbackItems = null;
+      render();
+    }catch(e){
+      console.error(e);
+      errEl.textContent='저장에 실패했어요.'; errEl.style.display='block';
+      btn.disabled=false; btn.textContent='피드백 남기기';
+    }
+  });
+}
+
+/* ==================== 룰렛 (엔터테인먼트) ==================== */
+const ROULETTE_COLORS = ['#111111','#F9D423','#FFFFFF','#FF4B3E'];
+function renderRoulette(){
+  const n = rouletteNames.length;
+  const seg = n>0 ? 360/n : 0;
+  let gradient = '#E4DCC0';
+  if(n>0){
+    const parts = rouletteNames.map((name,i)=>{
+      const color = ROULETTE_COLORS[i % ROULETTE_COLORS.length];
+      return `${color} ${(i*seg).toFixed(2)}deg ${((i+1)*seg).toFixed(2)}deg`;
+    });
+    gradient = `conic-gradient(from 0deg, ${parts.join(', ')})`;
+  }
+  const labels = rouletteNames.map((name,i)=>{
+    const mid = i*seg + seg/2;
+    const color = ROULETTE_COLORS[i % ROULETTE_COLORS.length];
+    const textColor = (color==='#F9D423' || color==='#FFFFFF') ? '#111111' : '#FFFFFF';
+    return `<div class="wheel-label" style="transform:rotate(${mid}deg);">
+      <span style="color:${textColor};">${esc(name)}</span>
+    </div>`;
+  }).join('');
+
+  return `
+    ${heroBlock('돌림판으로 재미있게 정해요')}
+    <div class="topnav" style="justify-content:flex-start; margin-top:-6px;">
+      <button class="ghost-btn" id="back-btn">← 돌아가기</button>
+    </div>
+    <div class="card">
+      <div class="step-label"><span class="step-num">1</span> 참여자 이름 추가</div>
+      <p class="step-desc">메뉴를 정할 사람들의 이름을 넣어주세요 (2명 이상)</p>
+      <div style="margin-left:38px;" class="other-add-row">
+        <input type="text" id="roulette-name-input" placeholder="이름 입력" value="${esc(rouletteNameInput)}">
+        <button id="roulette-add-btn">추가</button>
+      </div>
+      ${currentDoc && currentDoc.votes && Object.keys(currentDoc.votes).length ? `<div style="margin-left:38px; margin-top:8px;"><button class="ghost-btn" id="roulette-import-btn">🙋 지금 투표자 명단 불러오기</button></div>` : ''}
+      ${rouletteNames.length ? `<div class="other-chip-row" style="margin-left:38px; margin-top:10px;">${rouletteNames.map((n,i)=>`<span class="other-chip">${esc(n)} <button data-idx="${i}" class="rm-roulette-name">✕</button></span>`).join('')}</div>` : ''}
+    </div>
+
+    <div class="card" style="text-align:center;">
+      <div class="step-label" style="justify-content:center;"><span class="step-num">2</span> 돌려서 정하기</div>
+      <div class="roulette-wrap">
+        <div class="roulette-pointer">▼</div>
+        <div class="roulette-wheel-outer">
+          <div class="roulette-wheel" id="roulette-wheel" style="background:${gradient}; transform:rotate(${rouletteRotation}deg);">
+            ${labels}
+          </div>
+        </div>
+      </div>
+      <button class="admin-btn" id="roulette-spin-btn" style="margin-top:18px;" ${(rouletteNames.length<2||rouletteSpinning)?'disabled':''}>${rouletteSpinning?'돌아가는 중...':'🎡 돌리기'}</button>
+      ${rouletteWinner ? `<div class="final-row" style="justify-content:center; margin-top:16px; font-size:17px;">🎉 <b style="color:var(--red);">${esc(rouletteWinner)}</b>님이 메뉴를 정합니다!</div>` : ''}
+    </div>
+  `;
+}
+function bindRouletteEvents(){
+  document.getElementById('back-btn').addEventListener('click', ()=>{ showRoulette=false; render(); });
+  document.getElementById('roulette-name-input').addEventListener('input', e=> rouletteNameInput = e.target.value );
+  document.getElementById('roulette-add-btn').addEventListener('click', ()=>{
+    const val = rouletteNameInput.trim();
+    if(!val) return;
+    rouletteNames.push(val);
+    rouletteNameInput = '';
+    rouletteWinner = null;
+    render();
+  });
+  const importBtn = document.getElementById('roulette-import-btn');
+  if(importBtn) importBtn.addEventListener('click', ()=>{
+    const voterNames = Object.keys((currentDoc && currentDoc.votes) || {});
+    rouletteNames = Array.from(new Set([...rouletteNames, ...voterNames]));
+    render();
+  });
+  document.querySelectorAll('.rm-roulette-name').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      rouletteNames.splice(parseInt(el.dataset.idx),1);
+      rouletteWinner = null;
+      render();
+    });
+  });
+  const spinBtn = document.getElementById('roulette-spin-btn');
+  if(spinBtn) spinBtn.addEventListener('click', ()=>{
+    if(rouletteSpinning || rouletteNames.length<2) return;
+    const n = rouletteNames.length;
+    const seg = 360/n;
+    const winnerIndex = Math.floor(Math.random()*n);
+    const mid = winnerIndex*seg + seg/2;
+    const targetMod = (360 - mid + 360) % 360;
+    const currentMod = ((rouletteRotation % 360) + 360) % 360;
+    const delta = ((targetMod - currentMod) + 360) % 360;
+    const newRotation = rouletteRotation + 360*5 + delta;
+
+    rouletteSpinning = true;
+    rouletteWinner = null;
+    const wheelEl = document.getElementById('roulette-wheel');
+    spinBtn.disabled = true; spinBtn.textContent = '돌아가는 중...';
+    if(wheelEl){
+      wheelEl.style.transition = 'transform 4.2s cubic-bezier(0.15,0.65,0.15,1)';
+      wheelEl.style.transform = `rotate(${newRotation}deg)`;
+    }
+    rouletteRotation = newRotation;
+    setTimeout(()=>{
+      rouletteSpinning = false;
+      rouletteWinner = rouletteNames[winnerIndex];
+      render();
+    }, 4300);
+  });
 }
 
 /* ==================== 시작 ==================== */
