@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BOKPICK</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8D%9A%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Do+Hyeon&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
 
@@ -128,7 +129,12 @@
     border: none;
   }
 
-  .topnav{ display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px; }
+  .topnav{ display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px; flex-wrap:wrap; }
+  .team-bar{
+    display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;
+    font-size:12.5px; color:var(--muted); margin: 10px 2px 0;
+  }
+  .team-bar b{ color:var(--ink); }
 
   /* ---------- CARDS / FORM ---------- */
   .card{
@@ -357,9 +363,40 @@ try{
 }catch(e){
   console.error('Firebase 초기화 실패', e);
 }
-const pollRef = firebaseReady ? db.collection('polls').doc('current') : null;
-const historyRef = firebaseReady ? db.collection('polls').doc('history') : null;
-const feedbackRef = firebaseReady ? db.collection('polls').doc('feedback') : null;
+let pollRef = null;
+let historyRef = null;
+let feedbackRef = null;
+let teamsRef = firebaseReady ? db.collection('teams') : null;
+let teamId = null;
+let teamDoc = null;
+let teamEntryLoaded = false;
+let unsubscribePoll = null;
+
+function getTeamIdFromUrl(){
+  const params = new URLSearchParams(window.location.search);
+  const t = params.get('team');
+  return t ? t.trim() : null;
+}
+function setTeamRefs(id){
+  pollRef = db.collection('teams').doc(id).collection('polls').doc('current');
+  historyRef = db.collection('teams').doc(id).collection('polls').doc('history');
+  feedbackRef = db.collection('teams').doc(id).collection('polls').doc('feedback');
+}
+function genTeamCode(){
+  return Math.random().toString(36).slice(2,8).toUpperCase();
+}
+function attachPollListener(){
+  if(unsubscribePoll) unsubscribePoll();
+  unsubscribePoll = pollRef.onSnapshot(snap=>{
+    currentDoc = snap.exists ? snap.data() : null;
+    docLoaded = true;
+    render();
+  }, err=>{
+    console.error('poll listen error', err);
+    docLoaded = true;
+    render();
+  });
+}
 
 /* ==================== 전역 상태 ==================== */
 let currentDoc = null;
@@ -634,6 +671,15 @@ function render(){
     </div>`;
     return;
   }
+  if(!teamEntryLoaded){
+    app.innerHTML = `<div class="loading">불러오는 중...</div>`;
+    return;
+  }
+  if(!teamId){
+    app.innerHTML = renderTeamEntry();
+    bindTeamEntryEvents();
+    return;
+  }
   if(showHistory){
     if(historyItems===null){ app.innerHTML = `<div class="loading">기록 불러오는 중...</div>`; loadHistory(); return; }
     app.innerHTML = renderHistory();
@@ -678,6 +724,10 @@ function heroBlock(subtitle, poll){
       ${poll ? `<div class="poll-title">${esc(poll.title)}</div>` : ''}
       <p class="sub">${subtitle}</p>
     </div>
+    <div class="team-bar">
+      <span>👥 ${esc(teamDoc && teamDoc.teamName ? teamDoc.teamName : '팀')} · 코드 <b>${esc(teamId||'')}</b></span>
+      <button class="ghost-btn" id="copy-team-link-btn">🔗 링크 복사</button>
+    </div>
     <div class="checker-divider"></div>
     <div class="topnav">
       <button class="ghost-btn" id="nav-roulette-btn">🎡 룰렛</button>
@@ -687,12 +737,107 @@ function heroBlock(subtitle, poll){
   `;
 }
 function bindTopNav(){
+  const copyBtn = document.getElementById('copy-team-link-btn');
+  if(copyBtn) copyBtn.addEventListener('click', ()=>{
+    const url = `${window.location.origin}${window.location.pathname}?team=${teamId}`;
+    navigator.clipboard.writeText(url).then(()=>{
+      copyBtn.textContent = '✅ 복사됨';
+      setTimeout(()=>{ copyBtn.textContent = '🔗 링크 복사'; }, 1500);
+    }).catch(()=>{});
+  });
   const b = document.getElementById('nav-history-btn');
   if(b) b.addEventListener('click', ()=>{ showHistory=true; historyItems=null; render(); });
   const f = document.getElementById('nav-feedback-btn');
   if(f) f.addEventListener('click', ()=>{ showFeedback=true; feedbackItems=null; render(); });
   const r = document.getElementById('nav-roulette-btn');
   if(r) r.addEventListener('click', ()=>{ showRoulette=true; render(); });
+}
+
+/* ==================== 팀 스페이스 입장/생성 ==================== */
+let teamEntryForm = { newTeamName:'', joinCode:'' };
+let teamEntryError = '';
+
+function renderTeamEntry(){
+  return `
+    <div class="hero">
+      <div class="hero-badge">복후비<br>다 쓰는<br>그 날까지</div>
+      <div class="hero-top"><img class="logo-img" src="${BOKPICK_LOGO_SRC}" alt="BOKPICK"></div>
+      <div class="dashed-path"></div>
+      <p class="sub">우리 팀만의 투표 공간을 만들거나, 받은 코드로 들어가세요</p>
+    </div>
+    <div class="checker-divider"></div>
+
+    <div class="card">
+      <div class="step-label"><span class="step-num">1</span> 새 팀 스페이스 만들기</div>
+      <p class="step-desc">다른 팀과 완전히 분리된 우리 팀만의 공간이 생겨요</p>
+      <div style="margin-left:38px;"><input type="text" id="team-name-input" placeholder="팀 이름 (예: 마케팅팀)" value="${esc(teamEntryForm.newTeamName)}"></div>
+      <button class="submit-btn" id="team-create-btn">새 팀 스페이스 만들기</button>
+    </div>
+
+    <div class="divider-title"><span>또는</span></div>
+
+    <div class="card">
+      <div class="step-label"><span class="step-num">2</span> 받은 코드로 입장하기</div>
+      <p class="step-desc">팀 관리자에게 받은 코드를 입력해주세요</p>
+      <div style="margin-left:38px;"><input type="text" id="team-join-input" placeholder="예: A1B2C3" value="${esc(teamEntryForm.joinCode)}" style="text-transform:uppercase;"></div>
+      <button class="submit-btn" id="team-join-btn">코드로 입장하기</button>
+    </div>
+    ${teamEntryError ? `<div class="error-text" style="margin-left:0;">${esc(teamEntryError)}</div>` : ''}
+  `;
+}
+
+function bindTeamEntryEvents(){
+  document.getElementById('team-name-input').addEventListener('input', e=> teamEntryForm.newTeamName = e.target.value );
+  document.getElementById('team-join-input').addEventListener('input', e=> teamEntryForm.joinCode = e.target.value.toUpperCase() );
+
+  document.getElementById('team-create-btn').addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    btn.disabled = true; btn.textContent = '만드는 중...';
+    const name = teamEntryForm.newTeamName.trim() || '우리팀';
+    const code = genTeamCode();
+    try{
+      await teamsRef.doc(code).set({ teamName: name, createdAt: Date.now() });
+      enterTeam(code, { teamName: name });
+    }catch(e){
+      console.error(e);
+      teamEntryError = '팀 스페이스 생성에 실패했어요. Firebase 설정을 확인해주세요.';
+      btn.disabled = false; btn.textContent = '새 팀 스페이스 만들기';
+      render();
+    }
+  });
+
+  document.getElementById('team-join-btn').addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    const code = teamEntryForm.joinCode.trim().toUpperCase();
+    if(!code){ teamEntryError = '코드를 입력해주세요.'; render(); return; }
+    btn.disabled = true; btn.textContent = '확인 중...';
+    try{
+      const snap = await teamsRef.doc(code).get();
+      if(!snap.exists){
+        teamEntryError = '존재하지 않는 코드예요. 다시 확인해주세요.';
+        btn.disabled = false; btn.textContent = '코드로 입장하기';
+        render();
+        return;
+      }
+      enterTeam(code, snap.data());
+    }catch(e){
+      console.error(e);
+      teamEntryError = '입장에 실패했어요. 다시 시도해주세요.';
+      btn.disabled = false; btn.textContent = '코드로 입장하기';
+      render();
+    }
+  });
+}
+
+function enterTeam(code, data){
+  teamId = code;
+  teamDoc = data;
+  teamEntryError = '';
+  const url = new URL(window.location.href);
+  url.searchParams.set('team', code);
+  window.history.replaceState(null, '', url.toString());
+  setTeamRefs(code);
+  attachPollListener();
 }
 
 /* ==================== 캘린더 렌더 ==================== */
@@ -1476,19 +1621,27 @@ function bindRouletteEvents(){
 }
 
 /* ==================== 시작 ==================== */
-if(firebaseReady){
-  pollRef.onSnapshot(snap=>{
-    currentDoc = snap.exists ? snap.data() : null;
-    docLoaded = true;
-    render();
-  }, err=>{
-    console.error('poll listen error', err);
-    docLoaded = true;
-    render();
-  });
-} else {
+async function bootstrap(){
+  if(!firebaseReady){ render(); return; }
+  const urlTeamId = getTeamIdFromUrl();
+  if(urlTeamId){
+    try{
+      const snap = await teamsRef.doc(urlTeamId).get();
+      if(snap.exists){
+        teamId = urlTeamId;
+        teamDoc = snap.data();
+        setTeamRefs(urlTeamId);
+        attachPollListener();
+      }
+      // 존재하지 않는 코드면 teamId를 null로 두어 입장 화면을 보여줌
+    }catch(e){
+      console.error(e);
+    }
+  }
+  teamEntryLoaded = true;
   render();
 }
+bootstrap();
 </script>
 </body>
 </html>
