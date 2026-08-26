@@ -75,6 +75,7 @@
     display:block;
     width: min(78%, 380px);
     height:auto;
+    cursor:pointer;
   }
   .logo-text{
     position:relative;
@@ -719,9 +720,7 @@ function heroBlock(subtitle, poll){
   return `
     <div class="hero">
       <div class="hero-badge">복후비<br>다 쓰는<br>그 날까지</div>
-      <div class="hero-top"><img class="logo-img" src="${BOKPICK_LOGO_SRC}" alt="BOKPICK"></div>
-      <div class="dashed-path"></div>
-      ${poll ? `<div class="poll-title">${esc(poll.title)}</div>` : ''}
+      <div class="hero-top"><img class="logo-img" id="logo-home-btn" src="${BOKPICK_LOGO_SRC}" alt="BOKPICK" title="메인 화면으로"></div>
       <p class="sub">${subtitle}</p>
     </div>
     <div class="team-bar">
@@ -737,6 +736,13 @@ function heroBlock(subtitle, poll){
   `;
 }
 function bindTopNav(){
+  const logoBtn = document.getElementById('logo-home-btn');
+  if(logoBtn) logoBtn.addEventListener('click', ()=>{
+    showHistory = false;
+    showFeedback = false;
+    showRoulette = false;
+    render();
+  });
   const copyBtn = document.getElementById('copy-team-link-btn');
   if(copyBtn) copyBtn.addEventListener('click', ()=>{
     const url = `${window.location.origin}${window.location.pathname}?team=${teamId}`;
