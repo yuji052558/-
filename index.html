@@ -1466,6 +1466,7 @@ function renderHistory(){
   `;
 }
 function bindHistoryEvents(){
+  bindTopNav();
   document.getElementById('back-btn').addEventListener('click', ()=>{ showHistory=false; render(); });
 }
 
@@ -1497,6 +1498,7 @@ function renderFeedback(){
   `;
 }
 function bindFeedbackEvents(){
+  bindTopNav();
   document.getElementById('back-btn').addEventListener('click', ()=>{ showFeedback=false; render(); });
   document.getElementById('feedback-name').addEventListener('input', e=> feedbackForm.name = e.target.value );
   document.getElementById('feedback-message').addEventListener('input', e=> feedbackForm.message = e.target.value );
@@ -1574,6 +1576,7 @@ function renderRoulette(){
   `;
 }
 function bindRouletteEvents(){
+  bindTopNav();
   document.getElementById('back-btn').addEventListener('click', ()=>{ showRoulette=false; render(); });
   document.getElementById('roulette-name-input').addEventListener('input', e=> rouletteNameInput = e.target.value );
   document.getElementById('roulette-add-btn').addEventListener('click', ()=>{
