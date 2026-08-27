@@ -96,7 +96,7 @@
     border-radius: 50%;
     display:flex; align-items:center; justify-content:center;
     text-align:center;
-    font-size:12px; font-weight:800; line-height:1.25;
+    font-size:10.5px; font-weight:800; line-height:1.25;
     padding:6px;
     color: var(--ink);
     animation: badge-spin 9s linear infinite;
@@ -367,11 +367,14 @@ try{
 let pollRef = null;
 let historyRef = null;
 let feedbackRef = null;
+let membersRef = null;
 let teamsRef = firebaseReady ? db.collection('teams') : null;
 let teamId = null;
 let teamDoc = null;
 let teamEntryLoaded = false;
 let unsubscribePoll = null;
+let unsubscribeMembers = null;
+let memberNames = [];
 
 function getTeamIdFromUrl(){
   const params = new URLSearchParams(window.location.search);
@@ -382,6 +385,7 @@ function setTeamRefs(id){
   pollRef = db.collection('teams').doc(id).collection('polls').doc('current');
   historyRef = db.collection('teams').doc(id).collection('polls').doc('history');
   feedbackRef = db.collection('teams').doc(id).collection('polls').doc('feedback');
+  membersRef = db.collection('teams').doc(id).collection('polls').doc('members');
 }
 function genTeamCode(){
   return Math.random().toString(36).slice(2,8).toUpperCase();
@@ -396,6 +400,23 @@ function attachPollListener(){
     console.error('poll listen error', err);
     docLoaded = true;
     render();
+  });
+}
+function attachMembersListener(){
+  if(unsubscribeMembers) unsubscribeMembers();
+  unsubscribeMembers = membersRef.onSnapshot(snap=>{
+    memberNames = snap.exists ? (snap.data().names||[]) : [];
+    render();
+  }, err=>{
+    console.error('members listen error', err);
+  });
+}
+async function addMember(name){
+  await db.runTransaction(async (tx)=>{
+    const snap = await tx.get(membersRef);
+    const names = snap.exists ? (snap.data().names||[]) : [];
+    if(!names.includes(name)) names.push(name);
+    tx.set(membersRef, { names });
   });
 }
 
@@ -449,6 +470,37 @@ function defaultMonth(){
 }
 function esc(s){
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function renderNamePicker(prefix, selectedName){
+  return `
+    <div class="option-grid" id="${prefix}-name-grid" style="margin-left:0;">
+      ${memberNames.map(n=>`<div class="option-pill ${selectedName===n?'selected':''}" data-name="${esc(n)}">${esc(n)}</div>`).join('')}
+    </div>
+    ${memberNames.length===0 ? `<p class="hint" style="margin:8px 0 0;">아직 등록된 팀원이 없어요. 아래에서 이름을 추가해주세요.</p>` : ''}
+    <div class="other-add-row" style="margin-top:10px;">
+      <input type="text" id="${prefix}-name-new-input" placeholder="명단에 없으면 이름 추가">
+      <button id="${prefix}-name-add-btn">추가</button>
+    </div>
+  `;
+}
+function bindNamePicker(prefix, onSelect){
+  document.querySelectorAll(`#${prefix}-name-grid .option-pill`).forEach(el=>{
+    el.addEventListener('click', ()=> onSelect(el.dataset.name));
+  });
+  const addBtn = document.getElementById(`${prefix}-name-add-btn`);
+  if(addBtn) addBtn.addEventListener('click', async ()=>{
+    const input = document.getElementById(`${prefix}-name-new-input`);
+    const val = input.value.trim();
+    if(!val) return;
+    addBtn.disabled = true;
+    try{
+      await addMember(val);
+      onSelect(val);
+    }catch(e){
+      console.error(e);
+      addBtn.disabled = false;
+    }
+  });
 }
 function fmtDate(iso){
   const d = new Date(iso+'T00:00:00');
@@ -844,6 +896,7 @@ function enterTeam(code, data){
   window.history.replaceState(null, '', url.toString());
   setTeamRefs(code);
   attachPollListener();
+  attachMembersListener();
 }
 
 /* ==================== 캘린더 렌더 ==================== */
@@ -961,7 +1014,8 @@ function renderVoting(doc){
 
     <div class="card">
       <div class="step-label"><span class="step-num">1</span> 이름</div>
-      <div style="margin-left:38px;"><input type="text" id="form-name" placeholder="이름을 입력해주세요" value="${esc(voteForm.name)}"></div>
+      <p class="step-desc" style="margin-left:0;">명단에서 골라주세요</p>
+      ${renderNamePicker('vote', voteForm.name)}
     </div>
 
     <div class="card">
@@ -1073,7 +1127,7 @@ function renderOtherBlock(kind){
 
 function bindVotingEvents(doc){
   bindTopNav();
-  document.getElementById('form-name').addEventListener('input', e=> voteForm.name = e.target.value );
+  bindNamePicker('vote', (name)=>{ voteForm.name = name; render(); });
 
   document.querySelectorAll('#activity-grid .option-pill').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -1251,7 +1305,8 @@ function renderRestaurant(doc){
 
     <div class="card">
       <div class="step-label"><span class="step-num">2</span> 이름</div>
-      <div style="margin-left:38px;"><input type="text" id="resto-voter-name" placeholder="이름을 입력해주세요" value="${esc(restaurantForm.name)}"></div>
+      <p class="step-desc" style="margin-left:0;">명단에서 골라주세요</p>
+      ${renderNamePicker('resto', restaurantForm.name)}
     </div>
 
     <div class="card">
@@ -1341,7 +1396,7 @@ function bindRestaurantEvents(doc){
     }catch(e){ console.error(e); restoAddError='추가에 실패했어요.'; render(); }
   });
 
-  document.getElementById('resto-voter-name').addEventListener('input', e=> restaurantForm.name=e.target.value );
+  bindNamePicker('resto', (name)=>{ restaurantForm.name = name; render(); });
 
   document.querySelectorAll('.resto-pill[data-id]').forEach(el=>{
     el.addEventListener('click', ()=>{ restaurantForm.selectedOptionId = el.dataset.id; render(); });
@@ -1641,6 +1696,7 @@ async function bootstrap(){
         teamDoc = snap.data();
         setTeamRefs(urlTeamId);
         attachPollListener();
+        attachMembersListener();
       }
       // 존재하지 않는 코드면 teamId를 null로 두어 입장 화면을 보여줌
     }catch(e){
