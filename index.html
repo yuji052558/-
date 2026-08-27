@@ -137,6 +137,36 @@
   }
   .team-bar b{ color:var(--ink); }
 
+  /* ---------- SITE HEADER / MENU ---------- */
+  .site-header{
+    position:sticky; top:0; z-index:40;
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--ink); color:var(--yellow);
+    padding:11px 14px; border-radius:14px;
+    margin-bottom:14px;
+  }
+  .menu-toggle{
+    background:none; border:1.5px solid var(--yellow); color:var(--yellow);
+    padding:7px 11px; border-radius:8px; font-size:11.5px; font-weight:800; cursor:pointer; font-family:inherit;
+    white-space:nowrap;
+  }
+  .menu-toggle:hover{ background:rgba(249,212,35,0.15); }
+  .site-header-brand{
+    font-family:'Baloo 2', sans-serif; font-weight:800; font-size:19px; color:var(--yellow);
+    cursor:pointer; letter-spacing:.5px;
+  }
+  .menu-panel{
+    max-height:0; overflow:hidden; transition:max-height .25s ease;
+    background:var(--white); border:0 solid var(--ink); border-radius:14px;
+  }
+  .menu-panel.open{ max-height:320px; border-width:2.5px; margin:-8px 0 14px; }
+  .menu-item{
+    display:block; width:100%; text-align:left; background:none; border:none; border-bottom:1px solid var(--line);
+    padding:13px 16px; font-size:14px; font-weight:700; color:var(--ink); cursor:pointer; font-family:inherit;
+  }
+  .menu-item:hover{ background:var(--sky); }
+  .menu-team-info{ padding:10px 16px; font-size:11.5px; color:var(--muted); }
+
   /* ---------- CARDS / FORM ---------- */
   .card{
     background: var(--white);
@@ -429,6 +459,8 @@ let showFeedback = false;
 let feedbackItems = null;
 let feedbackForm = { name:'', message:'' };
 let showRoulette = false;
+let menuOpen = false;
+let historyDeleteConfirmId = null;
 let rouletteNames = [];
 let rouletteNameInput = '';
 let rouletteSpinning = false;
@@ -505,6 +537,52 @@ function bindNamePicker(prefix, onSelect){
 function fmtDate(iso){
   const d = new Date(iso+'T00:00:00');
   return { md:`${d.getMonth()+1}/${d.getDate()}`, dow: DOW[d.getDay()] };
+}
+
+// 가양역(회사 위치) 근처 추천 맛집 - 수동 큐레이션 스냅샷 (실시간 API 아님, 필요시 갱신)
+const GAYANG_COORDS = { lat: 37.5613, lng: 126.8547 };
+const GAYANG_RECS = {
+  '한식': [
+    { name:'낙원', desc:'가족·단체 모임 좋은 정갈한 한식당' },
+    { name:'봉래헌', desc:'깔끔한 한식 코스, 가격대는 다소 있는 편' },
+    { name:'고향옥얼큰순대국 가양점', desc:'얼큰한 순대국, 부담없는 한 끼' }
+  ],
+  '중식': [
+    { name:'취선', desc:'가성비 좋은 짜장면 맛집' },
+    { name:'짬뽕만리', desc:'얼큰한 짬뽕 전문점' },
+    { name:'댄싱홍콩 가양점', desc:'중식·양식·일식을 믹스한 홍콩식 요리' }
+  ],
+  '일식': [
+    { name:'스시미즈키', desc:'가성비 좋은 초밥집' },
+    { name:'옥소반', desc:'스키야키 등 일본식 전골 전문' }
+  ],
+  '양식': [],
+  '기타': [
+    { name:'냐항바바바', desc:'쌀국수 전문 베트남 음식점' },
+    { name:'고양꼬치 가양점', desc:'단체 회식하기 좋은 양꼬치·중식 요리' }
+  ],
+  '전체': [
+    { name:'낙원', desc:'단체 모임 좋은 한식당' },
+    { name:'취선', desc:'가성비 좋은 중식 짜장면' },
+    { name:'스시미즈키', desc:'가성비 좋은 초밥집' }
+  ]
+};
+function renderGayangRecommend(selectedFoods){
+  const key = (selectedFoods && selectedFoods.length) ? selectedFoods[0] : null;
+  const list = key && GAYANG_RECS[key] && GAYANG_RECS[key].length ? GAYANG_RECS[key] : GAYANG_RECS['전체'];
+  const query = key ? `가양역 ${key} 맛집` : '가양역 맛집';
+  const mapUrl = `https://map.naver.com/p/search/${encodeURIComponent(query)}?c=${GAYANG_COORDS.lng},${GAYANG_COORDS.lat},16,0,0,0,dh`;
+  return `
+    <div class="card">
+      <div class="step-label" style="font-size:15px;">📍 가양역 근처 추천 맛집${key?` · ${esc(key)}`:''}</div>
+      <p class="step-desc" style="margin-left:0;">회사 위치(가양역) 기준으로 뽑아본 맛집이에요${key?'':' · 메뉴를 고르면 더 정확해져요'}</p>
+      ${list.length===0 ? `<p class="empty-note" style="padding:4px 0;">아직 추천할 만한 곳을 못 찾았어요. 아래 링크에서 직접 찾아보세요.</p>` :
+        list.map(r=>`<div class="resto-pill" style="cursor:default;"><div><div class="r-name">${esc(r.name)}</div><div class="r-note">${esc(r.desc)}</div></div></div>`).join('')
+      }
+      <a href="${mapUrl}" target="_blank" rel="noopener" class="ghost-btn" style="display:inline-block; margin-top:8px; text-decoration:none;">🗺️ 네이버지도에서 더 보기</a>
+      <p class="hint">※ 실시간 API 연동이 아니라 최근 조사한 스냅샷이에요. 최신 정보는 지도에서 확인해주세요.</p>
+    </div>
+  `;
 }
 function monthDates(monthStr){
   const [y,m] = monthStr.split('-').map(Number);
@@ -656,6 +734,15 @@ async function archiveResult(summary){
   historyItems = null; // 다음에 다시 불러오게
 }
 
+async function deleteHistoryItem(archivedAt){
+  await db.runTransaction(async (tx)=>{
+    const snap = await tx.get(historyRef);
+    if(!snap.exists) return;
+    const items = (snap.data().items||[]).filter(it=>it.archivedAt !== archivedAt);
+    tx.set(historyRef, { items });
+  });
+}
+
 async function startNewPoll(){
   await pollRef.delete();
 }
@@ -733,37 +820,45 @@ function render(){
     bindTeamEntryEvents();
     return;
   }
+
   if(showHistory){
-    if(historyItems===null){ app.innerHTML = `<div class="loading">기록 불러오는 중...</div>`; loadHistory(); return; }
-    app.innerHTML = renderHistory();
+    if(historyItems===null){ app.innerHTML = renderSiteHeader() + `<div class="loading">기록 불러오는 중...</div>`; bindSiteHeader(); loadHistory(); return; }
+    app.innerHTML = renderSiteHeader() + renderHistory();
+    bindSiteHeader();
     bindHistoryEvents();
     return;
   }
   if(showFeedback){
-    if(feedbackItems===null){ app.innerHTML = `<div class="loading">불러오는 중...</div>`; loadFeedback(); return; }
-    app.innerHTML = renderFeedback();
+    if(feedbackItems===null){ app.innerHTML = renderSiteHeader() + `<div class="loading">불러오는 중...</div>`; bindSiteHeader(); loadFeedback(); return; }
+    app.innerHTML = renderSiteHeader() + renderFeedback();
+    bindSiteHeader();
     bindFeedbackEvents();
     return;
   }
   if(showRoulette){
-    app.innerHTML = renderRoulette();
+    app.innerHTML = renderSiteHeader() + renderRoulette();
+    bindSiteHeader();
     bindRouletteEvents();
     return;
   }
-  if(!docLoaded){ app.innerHTML = `<div class="loading">불러오는 중...</div>`; return; }
+  if(!docLoaded){ app.innerHTML = renderSiteHeader() + `<div class="loading">불러오는 중...</div>`; bindSiteHeader(); return; }
   if(!currentDoc){
-    app.innerHTML = renderSetup();
+    app.innerHTML = renderSiteHeader() + renderSetup();
+    bindSiteHeader();
     bindSetupEvents();
     return;
   }
   if(currentDoc.stage==='voting'){
-    app.innerHTML = renderVoting(currentDoc);
+    app.innerHTML = renderSiteHeader() + renderVoting(currentDoc);
+    bindSiteHeader();
     bindVotingEvents(currentDoc);
   } else if(currentDoc.stage==='restaurant'){
-    app.innerHTML = renderRestaurant(currentDoc);
+    app.innerHTML = renderSiteHeader() + renderRestaurant(currentDoc);
+    bindSiteHeader();
     bindRestaurantEvents(currentDoc);
   } else {
-    app.innerHTML = renderDone(currentDoc);
+    app.innerHTML = renderSiteHeader() + renderDone(currentDoc);
+    bindSiteHeader();
     bindDoneEvents(currentDoc);
   }
 }
@@ -772,43 +867,71 @@ function heroBlock(subtitle, poll){
   return `
     <div class="hero">
       <div class="hero-badge">복후비<br>다 쓰는<br>그 날까지</div>
-      <div class="hero-top"><img class="logo-img" id="logo-home-btn" src="${BOKPICK_LOGO_SRC}" alt="BOKPICK" title="메인 화면으로"></div>
+      <div class="hero-top"><img class="logo-img" id="logo-home-btn-hero" src="${BOKPICK_LOGO_SRC}" alt="BOKPICK" title="메인 화면으로"></div>
+      <div class="dashed-path"></div>
+      ${poll ? `<div class="poll-title">${esc(poll.title)}</div>` : ''}
       <p class="sub">${subtitle}</p>
     </div>
-    <div class="team-bar">
-      <span>👥 ${esc(teamDoc && teamDoc.teamName ? teamDoc.teamName : '팀')} · 코드 <b>${esc(teamId||'')}</b></span>
-      <button class="ghost-btn" id="copy-team-link-btn">🔗 링크 복사</button>
-    </div>
     <div class="checker-divider"></div>
-    <div class="topnav">
-      <button class="ghost-btn" id="nav-roulette-btn">🎡 룰렛</button>
-      <button class="ghost-btn" id="nav-feedback-btn">💬 피드백</button>
-      <button class="ghost-btn" id="nav-history-btn">📖 지난 회식 기록</button>
+  `;
+}
+
+function renderSiteHeader(){
+  return `
+    <div class="site-header">
+      <button class="menu-toggle" id="menu-toggle-btn">☰ MENU</button>
+      <div class="site-header-brand" id="header-logo-btn">BOKPICK</div>
+      <button class="menu-toggle" id="header-copy-btn">🔗 LINK</button>
+    </div>
+    <div class="menu-panel ${menuOpen?'open':''}" id="menu-panel">
+      <button class="menu-item" data-target="home">🏠 메인(투표)</button>
+      <button class="menu-item" data-target="history">📖 지난 회식 기록</button>
+      <button class="menu-item" data-target="feedback">💬 피드백</button>
+      <button class="menu-item" data-target="roulette">🎡 룰렛</button>
+      ${teamId ? `<div class="menu-team-info">👥 ${esc(teamDoc && teamDoc.teamName ? teamDoc.teamName : '팀')} · 코드 ${esc(teamId)}</div>` : ''}
     </div>
   `;
 }
-function bindTopNav(){
-  const logoBtn = document.getElementById('logo-home-btn');
-  if(logoBtn) logoBtn.addEventListener('click', ()=>{
-    showHistory = false;
-    showFeedback = false;
-    showRoulette = false;
-    render();
-  });
-  const copyBtn = document.getElementById('copy-team-link-btn');
+
+function goHome(){
+  showHistory = false;
+  showFeedback = false;
+  showRoulette = false;
+  menuOpen = false;
+  render();
+}
+
+function bindSiteHeader(){
+  const menuBtn = document.getElementById('menu-toggle-btn');
+  if(menuBtn) menuBtn.addEventListener('click', ()=>{ menuOpen = !menuOpen; render(); });
+
+  const brand = document.getElementById('header-logo-btn');
+  if(brand) brand.addEventListener('click', goHome);
+
+  const heroLogo = document.getElementById('logo-home-btn-hero');
+  if(heroLogo) heroLogo.addEventListener('click', goHome);
+
+  const copyBtn = document.getElementById('header-copy-btn');
   if(copyBtn) copyBtn.addEventListener('click', ()=>{
     const url = `${window.location.origin}${window.location.pathname}?team=${teamId}`;
     navigator.clipboard.writeText(url).then(()=>{
       copyBtn.textContent = '✅ 복사됨';
-      setTimeout(()=>{ copyBtn.textContent = '🔗 링크 복사'; }, 1500);
+      setTimeout(()=>{ copyBtn.textContent = '🔗 LINK'; }, 1500);
     }).catch(()=>{});
   });
-  const b = document.getElementById('nav-history-btn');
-  if(b) b.addEventListener('click', ()=>{ showHistory=true; historyItems=null; render(); });
-  const f = document.getElementById('nav-feedback-btn');
-  if(f) f.addEventListener('click', ()=>{ showFeedback=true; feedbackItems=null; render(); });
-  const r = document.getElementById('nav-roulette-btn');
-  if(r) r.addEventListener('click', ()=>{ showRoulette=true; render(); });
+
+  document.querySelectorAll('.menu-item[data-target]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const t = el.dataset.target;
+      showHistory = (t==='history');
+      showFeedback = (t==='feedback');
+      showRoulette = (t==='roulette');
+      menuOpen = false;
+      if(t==='history') historyItems = null;
+      if(t==='feedback') feedbackItems = null;
+      render();
+    });
+  });
 }
 
 /* ==================== 팀 스페이스 입장/생성 ==================== */
@@ -958,7 +1081,6 @@ function renderSetup(){
   `;
 }
 function bindSetupEvents(){
-  bindTopNav();
   document.getElementById('setup-title').addEventListener('input', e=> setupState.title = e.target.value );
   document.getElementById('setup-teamsize').addEventListener('input', e=> setupState.teamSize = Math.max(1, parseInt(e.target.value)||1) );
   document.getElementById('setup-month').addEventListener('change', e=>{ setupState.month = e.target.value; setupState.excluded = new Set(); render(); });
@@ -1035,7 +1157,9 @@ function renderVoting(doc){
         ${FOOD_OPTS.map(f=>`<div class="option-pill ${voteForm.foods.has(f)?'selected':''}" data-val="${esc(f)}">${esc(f)}</div>`).join('')}
       </div>
       ${voteForm.foods.has('기타') ? renderOtherBlock('food') : ''}
-    </div>` : ''}
+    </div>
+    ${renderGayangRecommend(Array.from(voteForm.foods))}
+    ` : ''}
 
     <div class="card">
       <div class="step-label"><span class="step-num">${showFood?4:3}</span> 참여 가능한 날짜</div>
@@ -1126,7 +1250,6 @@ function renderOtherBlock(kind){
 }
 
 function bindVotingEvents(doc){
-  bindTopNav();
   bindNamePicker('vote', (name)=>{ voteForm.name = name; render(); });
 
   document.querySelectorAll('#activity-grid .option-pill').forEach(el=>{
@@ -1348,7 +1471,6 @@ function renderRestaurant(doc){
 }
 
 function bindRestaurantEvents(doc){
-  bindTopNav();
   const options = (doc.restaurant && doc.restaurant.options) || [];
   const restoRes = computeRestoResults(doc);
   if(finalizeForm.optionId===null && restoRes.winnerId) finalizeForm.optionId = restoRes.winnerId;
@@ -1482,7 +1604,6 @@ function renderDone(doc){
   `;
 }
 function bindDoneEvents(doc){
-  bindTopNav();
   const b = document.getElementById('newpoll-btn');
   if(b) b.addEventListener('click', ()=>{ newPollConfirming=true; render(); });
   const cancel = document.getElementById('newpoll-cancel-btn');
@@ -1502,27 +1623,52 @@ function renderHistory(){
   const items = historyItems || [];
   return `
     ${heroBlock('지난 회식 기록')}
-    <div class="topnav" style="justify-content:flex-start; margin-top:-6px;">
-      <button class="ghost-btn" id="back-btn">← 돌아가기</button>
-    </div>
     ${items.length===0 ? `<p class="empty-note">아직 기록된 회식이 없어요.</p>` :
       items.map(it=>{
         const d = it.date ? fmtDate(it.date) : null;
+        const isConfirming = historyDeleteConfirmId === it.archivedAt;
         return `<div class="history-item">
-          <div class="h-date">${d?`${d.md} (${d.dow})`:'날짜 미정'} ${it.title?`· ${esc(it.title)}`:''}</div>
-          <div class="h-meta">
-            ${(it.activities||[]).map(esc).join(', ')||'-'}
-            ${it.foods && it.foods.length ? ` · ${it.foods.map(esc).join(', ')}` : ''}
-            ${it.restaurantName ? ` · 🍽 ${esc(it.restaurantName)}` : ''}
-            ${it.time ? ` · 🕐 ${esc(it.time)}` : ''}
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+            <div>
+              <div class="h-date">${d?`${d.md} (${d.dow})`:'날짜 미정'} ${it.title?`· ${esc(it.title)}`:''}</div>
+              <div class="h-meta">
+                ${(it.activities||[]).map(esc).join(', ')||'-'}
+                ${it.foods && it.foods.length ? ` · ${it.foods.map(esc).join(', ')}` : ''}
+                ${it.restaurantName ? ` · 🍽 ${esc(it.restaurantName)}` : ''}
+                ${it.time ? ` · 🕐 ${esc(it.time)}` : ''}
+              </div>
+            </div>
+            ${isConfirming ? `
+              <div style="display:flex; gap:4px; flex-shrink:0;">
+                <button class="ghost-btn" data-cancel-del="${it.archivedAt}" style="padding:5px 9px; font-size:11px;">취소</button>
+                <button class="ghost-btn" data-confirm-del="${it.archivedAt}" style="padding:5px 9px; font-size:11px; border-color:var(--red); color:var(--red);">삭제확정</button>
+              </div>
+            ` : `<button class="ghost-btn" data-del="${it.archivedAt}" style="padding:5px 9px; font-size:12px; flex-shrink:0;">🗑</button>`}
           </div>
         </div>`;
       }).join('')}
   `;
 }
 function bindHistoryEvents(){
-  bindTopNav();
-  document.getElementById('back-btn').addEventListener('click', ()=>{ showHistory=false; render(); });
+  document.querySelectorAll('[data-del]').forEach(el=>{
+    el.addEventListener('click', ()=>{ historyDeleteConfirmId = parseInt(el.dataset.del); render(); });
+  });
+  document.querySelectorAll('[data-cancel-del]').forEach(el=>{
+    el.addEventListener('click', ()=>{ historyDeleteConfirmId = null; render(); });
+  });
+  document.querySelectorAll('[data-confirm-del]').forEach(el=>{
+    el.addEventListener('click', async (ev)=>{
+      const btn = ev.currentTarget;
+      const archivedAt = parseInt(btn.dataset.confirmDel);
+      btn.disabled = true;
+      try{
+        await deleteHistoryItem(archivedAt);
+        historyItems = null;
+      }catch(e){ console.error(e); }
+      historyDeleteConfirmId = null;
+      render();
+    });
+  });
 }
 
 /* ==================== 피드백 ==================== */
@@ -1553,7 +1699,6 @@ function renderFeedback(){
   `;
 }
 function bindFeedbackEvents(){
-  bindTopNav();
   document.getElementById('back-btn').addEventListener('click', ()=>{ showFeedback=false; render(); });
   document.getElementById('feedback-name').addEventListener('input', e=> feedbackForm.name = e.target.value );
   document.getElementById('feedback-message').addEventListener('input', e=> feedbackForm.message = e.target.value );
@@ -1631,7 +1776,6 @@ function renderRoulette(){
   `;
 }
 function bindRouletteEvents(){
-  bindTopNav();
   document.getElementById('back-btn').addEventListener('click', ()=>{ showRoulette=false; render(); });
   document.getElementById('roulette-name-input').addEventListener('input', e=> rouletteNameInput = e.target.value );
   document.getElementById('roulette-add-btn').addEventListener('click', ()=>{
