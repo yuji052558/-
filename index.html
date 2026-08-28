@@ -60,7 +60,7 @@
     border: 3px solid var(--ink);
     border-radius: 22px;
     padding: 34px 18px 26px;
-    margin-bottom: 22px;
+    margin: 6px 0 22px;
     overflow:visible;
   }
   .hero::before{ content:none; }
@@ -89,8 +89,8 @@
   }
   .hero-badge{
     position:absolute;
-    top:-22px; right:-22px;
-    width:92px; height:92px;
+    top:-10px; right:-12px;
+    width:88px; height:88px;
     background: var(--white);
     border: 2.5px solid var(--ink);
     border-radius: 50%;
@@ -99,6 +99,7 @@
     font-size:10.5px; font-weight:800; line-height:1.25;
     padding:6px;
     color: var(--ink);
+    z-index:1;
     animation: badge-spin 9s linear infinite;
   }
   @keyframes badge-spin{
@@ -568,18 +569,29 @@ const GAYANG_RECS = {
   ]
 };
 function renderGayangRecommend(selectedFoods){
-  const key = (selectedFoods && selectedFoods.length) ? selectedFoods[0] : null;
-  const list = key && GAYANG_RECS[key] && GAYANG_RECS[key].length ? GAYANG_RECS[key] : GAYANG_RECS['전체'];
-  const query = key ? `가양역 ${key} 맛집` : '가양역 맛집';
-  const mapUrl = `https://map.naver.com/p/search/${encodeURIComponent(query)}?c=${GAYANG_COORDS.lng},${GAYANG_COORDS.lat},16,0,0,0,dh`;
+  const foods = (selectedFoods && selectedFoods.length) ? selectedFoods : null;
+  const categories = foods || ['전체'];
+  const mapQuery = foods ? `가양역 ${foods.join(' ')} 맛집` : '가양역 맛집';
+  const mapUrl = `https://map.naver.com/p/search/${encodeURIComponent(mapQuery)}?c=${GAYANG_COORDS.lng},${GAYANG_COORDS.lat},16,0,0,0,dh`;
+
+  const sections = categories.map(key=>{
+    const list = GAYANG_RECS[key] || [];
+    return `
+      <div style="margin-bottom:14px;">
+        ${key!=='전체' ? `<div style="font-weight:800; font-size:13px; margin-bottom:6px;">${esc(key)}</div>` : ''}
+        ${list.length===0 ? `<p class="empty-note" style="padding:2px 0; text-align:left; margin:0;">추천할 만한 곳을 못 찾았어요.</p>` :
+          list.map(r=>`<div class="resto-pill" style="cursor:default;"><div><div class="r-name">${esc(r.name)}</div><div class="r-note">${esc(r.desc)}</div></div></div>`).join('')
+        }
+      </div>
+    `;
+  }).join('');
+
   return `
     <div class="card">
-      <div class="step-label" style="font-size:15px;">📍 가양역 근처 추천 맛집${key?` · ${esc(key)}`:''}</div>
-      <p class="step-desc" style="margin-left:0;">회사 위치(가양역) 기준으로 뽑아본 맛집이에요${key?'':' · 메뉴를 고르면 더 정확해져요'}</p>
-      ${list.length===0 ? `<p class="empty-note" style="padding:4px 0;">아직 추천할 만한 곳을 못 찾았어요. 아래 링크에서 직접 찾아보세요.</p>` :
-        list.map(r=>`<div class="resto-pill" style="cursor:default;"><div><div class="r-name">${esc(r.name)}</div><div class="r-note">${esc(r.desc)}</div></div></div>`).join('')
-      }
-      <a href="${mapUrl}" target="_blank" rel="noopener" class="ghost-btn" style="display:inline-block; margin-top:8px; text-decoration:none;">🗺️ 네이버지도에서 더 보기</a>
+      <div class="step-label" style="font-size:15px;">📍 가양역 근처 추천 맛집</div>
+      <p class="step-desc" style="margin-left:0;">회사 위치(가양역) 기준으로 뽑아본 맛집이에요${foods?'':' · 메뉴를 고르면 더 정확해져요'}</p>
+      ${sections}
+      <a href="${mapUrl}" target="_blank" rel="noopener" class="ghost-btn" style="display:inline-block; margin-top:-2px; text-decoration:none;">🗺️ 네이버지도에서 더 보기</a>
       <p class="hint">※ 실시간 API 연동이 아니라 최근 조사한 스냅샷이에요. 최신 정보는 지도에서 확인해주세요.</p>
     </div>
   `;
