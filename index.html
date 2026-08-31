@@ -159,7 +159,7 @@
     white-space:nowrap;
     display:inline-flex; align-items:center; justify-content:center; gap:4px; line-height:1;
   }
-  .hamburger-icon{ font-size:18px; display:inline-block; line-height:1; }
+  .hamburger-icon{ font-size:12px; display:inline-block; line-height:1; }
   .menu-toggle:hover{ background:rgba(249,212,35,0.15); }
   .site-header-brand{
     position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
@@ -450,6 +450,7 @@ let orgDivisionsRef = firebaseReady ? db.collection('orgDivisions') : null;
 let globalFeedbackRef = firebaseReady ? db.collection('globalFeedback') : null;
 let userProfilesRef = firebaseReady ? db.collection('userProfiles') : null;
 let myProfile = { species:'cat', color:'black', points:0, lastCheckIn:null };
+let homeError = '';
 let myProfileLoaded = false;
 let orgDivisions = [];
 let orgDivisionsLoaded = false;
@@ -663,6 +664,8 @@ let voteForm = emptyVoteForm();
 let editingName = null;
 let closeConfirming = false;
 let teamSizeEditVal = null;
+let titleEditVal = null;
+let deletePollConfirming = false;
 
 let restaurantForm = { name:'', newOptionName:'', newOptionNote:'', selectedOptionId:null };
 let naverBudget = '';
@@ -866,6 +869,7 @@ function renderCheckInCard(){
         ? `<button class="ghost-btn" disabled>오늘은 이미 출석했어요 ✅</button>`
         : `<button class="admin-btn" id="checkin-btn">오늘 출석체크하고 +50P 받기</button>`
       }
+      ${homeError ? `<div class="error-text" style="margin-left:0; margin-top:8px;">${esc(homeError)}</div>` : ''}
     </div>
   `;
 }
@@ -918,7 +922,12 @@ function bindHomeEvents(){
   if(checkinBtn) checkinBtn.addEventListener('click', async (ev)=>{
     const btn = ev.currentTarget;
     btn.disabled = true; btn.textContent = '처리 중...';
-    try{ await dailyCheckIn(); }catch(e){ console.error(e); }
+    try{
+      await dailyCheckIn();
+    }catch(e){
+      console.error('출석체크 저장 실패', e);
+      homeError = '저장에 실패했어요 (' + (e.code || e.message || '알 수 없는 오류') + '). Firestore 규칙을 확인해주세요.';
+    }
     render();
   });
 
@@ -1067,17 +1076,19 @@ async function loadGlobalFeedback(){
   render();
 }
 
-async function loadMyProfile(retries){
+async function loadMyProfile(uid, retries){
   if(retries===undefined) retries = 2;
+  if(!uid && authUser) uid = authUser.uid;
+  if(!uid){ myProfileLoaded = true; render(); return; }
   try{
-    const snap = await userProfilesRef.doc(authUser.uid).get();
+    const snap = await userProfilesRef.doc(uid).get();
     myProfile = snap.exists ? Object.assign({species:'cat', color:'black', points:0, lastCheckIn:null}, snap.data()) : {species:'cat', color:'black', points:200, lastCheckIn:null};
-    if(!snap.exists){ await saveMyProfile(); } // 프로필이 없던 계정(예전 계정)은 이번에 기본값으로 생성 + 200P 지급
+    if(!snap.exists){ await userProfilesRef.doc(uid).set(myProfile); } // 프로필이 없던 계정(예전 계정)은 이번에 기본값으로 생성 + 200P 지급
     myProfileLoaded = true;
   }catch(e){
     console.error('프로필 로드 실패', e);
     if(retries>0){
-      setTimeout(()=>loadMyProfile(retries-1), 700);
+      setTimeout(()=>loadMyProfile(uid, retries-1), 700);
       return; // 재시도 중에는 아직 '불러옴' 표시 안 함
     }
     myProfileLoaded = true; // 재시도 다 실패하면 그냥 현재 상태로 표시
@@ -1090,9 +1101,17 @@ async function saveMyProfile(){
 async function dailyCheckIn(){
   const today = new Date().toISOString().slice(0,10);
   if(myProfile.lastCheckIn === today) return false;
+  const prevPoints = myProfile.points;
+  const prevCheckIn = myProfile.lastCheckIn;
   myProfile.points = (myProfile.points||0) + 50;
   myProfile.lastCheckIn = today;
-  await saveMyProfile();
+  try{
+    await saveMyProfile();
+  }catch(e){
+    myProfile.points = prevPoints;
+    myProfile.lastCheckIn = prevCheckIn;
+    throw e;
+  }
   return true;
 }
 
@@ -1107,6 +1126,9 @@ async function createPoll(cfg){
 
 async function updateTeamSize(newSize){
   await pollRef.update({ teamSize: newSize });
+}
+async function updatePollTitle(newTitle){
+  await pollRef.update({ title: newTitle });
 }
 
 async function saveVote(name, voteData, prevName){
@@ -1440,8 +1462,8 @@ function renderSiteHeader(){
         </div>
         <div class="site-header-brand" id="header-logo-btn">BOKPICK</div>
         <div style="display:flex; gap:4px;">
-          <button class="menu-toggle" id="header-mypage-btn" style="padding:6px 8px; font-size:10px;">MY PAGE</button>
-          <button class="menu-toggle" id="header-logout-btn" style="padding:6px 8px; font-size:10px;">LOGOUT</button>
+          <button class="menu-toggle" id="header-mypage-btn">MY PAGE</button>
+          <button class="menu-toggle" id="header-logout-btn">LOGOUT</button>
         </div>
       </div>
     </div>`;
@@ -1934,6 +1956,11 @@ function renderVoting(doc){
     </div>
     <div class="card">
       <div class="step-label" style="font-size:16px;">🔒 관리자</div>
+      <p class="step-desc" style="margin-left:0;">투표 제목을 잘못 지었다면 여기서 수정할 수 있어요.</p>
+      <div class="other-add-row" style="margin-bottom:16px;">
+        <input type="text" id="title-edit-input" value="${titleEditVal===null?esc(doc.title):esc(titleEditVal)}">
+        <button id="title-save-btn">저장</button>
+      </div>
       <p class="step-desc" style="margin-left:0;">팀원 총 인원이 바뀌었다면 여기서 수정할 수 있어요.</p>
       <div class="other-add-row" style="margin-bottom:16px;">
         <input type="number" id="teamsize-edit-input" min="1" value="${teamSizeEditVal===null?doc.teamSize:teamSizeEditVal}">
@@ -1945,6 +1972,14 @@ function renderVoting(doc){
         <button class="ghost-btn" id="close-cancel-btn" style="margin-right:8px;">취소</button>
         <button class="admin-btn" id="close-confirm-btn">마감 확정</button>
       ` : `<button class="admin-btn" id="close-stageA-btn">1차 투표 마감하기</button>`}
+      <div style="border-top:1.5px dashed var(--line); margin-top:18px; padding-top:14px;">
+        <p class="step-desc" style="margin-left:0; color:var(--red);">잘못 만든 투표라면 삭제하고 처음부터 다시 만들 수 있어요. 지금까지 쌓인 투표는 전부 사라져요.</p>
+        ${deletePollConfirming ? `
+          <div style="color:var(--red); font-size:13px; margin-bottom:10px;">정말 삭제할까요? 되돌릴 수 없어요.</div>
+          <button class="ghost-btn" id="delete-poll-cancel-btn" style="margin-right:8px;">취소</button>
+          <button class="ghost-btn" id="delete-poll-confirm-btn" style="border-color:var(--red); color:var(--red);">삭제 확정</button>
+        ` : `<button class="ghost-btn" id="delete-poll-btn" style="border-color:var(--red); color:var(--red);">🗑 이 투표 삭제하고 새로 만들기</button>`}
+      </div>
     </div>
     `}
     <div class="footer-note">Firestore로 실시간 동기화돼요 · 팀원 링크만 공유하면 끝!</div>
@@ -2046,6 +2081,19 @@ function bindVotingEvents(doc){
     });
   });
 
+  const titleInput = document.getElementById('title-edit-input');
+  if(titleInput) titleInput.addEventListener('input', e=>{ titleEditVal = e.target.value; });
+  const titleSaveBtn = document.getElementById('title-save-btn');
+  if(titleSaveBtn) titleSaveBtn.addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    const val = (titleEditVal===null ? doc.title : titleEditVal).trim();
+    if(!val) return;
+    btn.disabled = true; btn.textContent='저장 중...';
+    try{ await updatePollTitle(val); }
+    catch(e){ console.error(e); }
+    btn.disabled = false; btn.textContent='저장';
+  });
+
   const teamsizeInput = document.getElementById('teamsize-edit-input');
   if(teamsizeInput) teamsizeInput.addEventListener('input', e=>{ teamSizeEditVal = Math.max(1, parseInt(e.target.value)||1); });
   const teamsizeSaveBtn = document.getElementById('teamsize-save-btn');
@@ -2056,6 +2104,19 @@ function bindVotingEvents(doc){
     try{ await updateTeamSize(val); }
     catch(e){ console.error(e); }
     btn.disabled = false; btn.textContent='저장';
+  });
+
+  const deletePollBtn = document.getElementById('delete-poll-btn');
+  if(deletePollBtn) deletePollBtn.addEventListener('click', ()=>{ deletePollConfirming = true; render(); });
+  const deletePollCancelBtn = document.getElementById('delete-poll-cancel-btn');
+  if(deletePollCancelBtn) deletePollCancelBtn.addEventListener('click', ()=>{ deletePollConfirming = false; render(); });
+  const deletePollConfirmBtn = document.getElementById('delete-poll-confirm-btn');
+  if(deletePollConfirmBtn) deletePollConfirmBtn.addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    btn.disabled = true; btn.textContent = '삭제 중...';
+    try{ await startNewPoll(); }
+    catch(e){ console.error(e); btn.disabled=false; btn.textContent='삭제 확정'; }
+    deletePollConfirming = false;
   });
 
   const closeBtn = document.getElementById('close-stageA-btn');
@@ -2782,12 +2843,24 @@ function bindCustomizeEvents(){
       return;
     }
     saveBtn.disabled = true; saveBtn.textContent = '저장 중...';
+    const prevPoints = myProfile.points;
+    const prevSpecies = myProfile.species;
+    const prevColor = myProfile.color;
     myProfile.points = (myProfile.points||0) - cost;
     myProfile.species = customizeDraft.species;
     myProfile.color = customizeDraft.color;
-    try{ await saveMyProfile(); }catch(e){ console.error(e); }
-    customizeDraft = null;
-    customizeError = '';
+    try{
+      await saveMyProfile();
+      customizeDraft = null;
+      customizeError = '';
+    }catch(e){
+      console.error('캐릭터 저장 실패', e);
+      // 저장이 실제로 실패했으면 화면도 원래대로 되돌려서 "된 것처럼" 보이지 않게 함
+      myProfile.points = prevPoints;
+      myProfile.species = prevSpecies;
+      myProfile.color = prevColor;
+      customizeError = '저장에 실패했어요 (' + (e.code || e.message || '알 수 없는 오류') + '). Firestore 규칙을 확인해주세요.';
+    }
     render();
   });
 }
@@ -3224,8 +3297,9 @@ async function bootstrap(){
     authUser = user;
     authLoaded = true;
     if(user){
+      const uid = user.uid;
       await resolveTeamForUser();
-      loadMyProfile();
+      loadMyProfile(uid);
     }
     render();
   });
