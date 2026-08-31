@@ -29,6 +29,7 @@
 <script src="https://t1.kakaocdn.net/kakao_js_sdk/2.8.1/kakao.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
 
@@ -151,6 +152,7 @@
     background:var(--ink); color:var(--yellow);
     padding:11px 14px; border-radius:14px;
   }
+  .menu-hover-zone{ position:relative; display:inline-block; }
   .menu-toggle{
     background:none; border:1.5px solid var(--yellow); color:var(--yellow);
     padding:7px 11px; border-radius:8px; font-size:11.5px; font-weight:800; cursor:pointer; font-family:inherit;
@@ -162,7 +164,8 @@
     cursor:pointer; letter-spacing:.5px;
   }
   .menu-panel{
-    position:absolute; top:calc(100% + 8px); left:0; right:0;
+    position:absolute; top:100%; left:0;
+    width:240px; max-width:80vw;
     max-height:0; overflow:hidden; opacity:0; pointer-events:none;
     transition:max-height .22s ease, opacity .18s ease;
     background:var(--white); border:0 solid var(--ink); border-radius:14px;
@@ -171,7 +174,7 @@
   }
   .menu-panel.open{ max-height:320px; border-width:1.5px; opacity:1; pointer-events:auto; }
   @media (hover:hover) and (pointer:fine){
-    .nav-wrap:hover .menu-panel{ max-height:320px; border-width:1.5px; opacity:1; pointer-events:auto; }
+    .menu-hover-zone:hover .menu-panel{ max-height:320px; border-width:1.5px; opacity:1; pointer-events:auto; }
   }
   .menu-item{
     display:block; width:100%; text-align:left; background:none; border:none; border-bottom:1px solid var(--line);
@@ -420,10 +423,12 @@ const DOW = ['일','월','화','수','목','금','토'];
 
 /* ==================== Firebase ==================== */
 let db = null;
+let auth = null;
 let firebaseReady = false;
 try{
   firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
+  auth = firebase.auth();
   firebaseReady = true;
 }catch(e){
   console.error('Firebase 초기화 실패', e);
@@ -437,12 +442,30 @@ let teamsRef = firebaseReady ? db.collection('teams') : null;
 let teamId = null;
 let teamDoc = null;
 let teamEntryLoaded = false;
+let authUser = null;
+let authLoaded = false;
+let authMode = 'login'; // 'login' | 'signup'
+let authForm = { email:'', password:'', password2:'', displayName:'' };
+let authError = '';
 let unsubscribePoll = null;
 let unsubscribeMembers = null;
 let memberNames = [];
 let unsubscribeBudget = null;
 let budgetDoc = null;
 let budgetLoaded = false;
+
+function usernameToEmail(username){
+  return `${username.trim().toLowerCase().replace(/\s+/g,'_')}@bokpick.local`;
+}
+
+const FIXED_ADMIN_USERNAME = 'cyj';
+function isAdmin(){
+  return !!(authUser && authUser.email === usernameToEmail(FIXED_ADMIN_USERNAME));
+}
+async function claimAdmin(){
+  await teamsRef.doc(teamId).update({ adminUid: authUser.uid });
+  teamDoc = Object.assign({}, teamDoc, { adminUid: authUser.uid });
+}
 
 function getTeamIdFromUrl(){
   const params = new URLSearchParams(window.location.search);
@@ -494,6 +517,32 @@ function attachBudgetListener(){
 async function setBudgetTotal(amount){
   await budgetRef.set({ totalBudget: amount, expenses: (budgetDoc && budgetDoc.expenses) || [] }, { merge: true });
 }
+
+/* ==================== 팀원 계정 등록 (관리자용) ==================== */
+let secondaryApp = null;
+function getSecondaryAuth(){
+  if(!secondaryApp){
+    secondaryApp = firebase.initializeApp(firebaseConfig, 'Secondary');
+  }
+  return secondaryApp.auth();
+}
+async function adminCreateAccount(name, username, password){
+  const secAuth = getSecondaryAuth();
+  const cred = await secAuth.createUserWithEmailAndPassword(usernameToEmail(username), password);
+  await cred.user.updateProfile({ displayName: name });
+  const uid = cred.user.uid;
+  await db.collection('userTeams').doc(uid).set({ teamId: teamId, teamName: (teamDoc && teamDoc.teamName) || '' });
+  await secAuth.signOut();
+  return uid;
+}
+async function saveUserTeamMapping(uid){
+  await db.collection('userTeams').doc(uid).set({ teamId: teamId, teamName: (teamDoc && teamDoc.teamName) || '' });
+}
+async function lookupUserTeam(uid){
+  const snap = await db.collection('userTeams').doc(uid).get();
+  return snap.exists ? snap.data() : null;
+}
+
 async function addExpense(amount, memo){
   await db.runTransaction(async (tx)=>{
     const snap = await tx.get(budgetRef);
@@ -652,6 +701,17 @@ function renderFortuneCard(){
   `;
 }
 
+function renderAdminClaimCard(){
+  if(!teamDoc || teamDoc.adminUid) return '';
+  return `
+    <div class="card" style="text-align:center;">
+      <div class="step-label" style="justify-content:center; font-size:15px;">👑 이 팀에 아직 관리자가 없어요</div>
+      <p class="step-desc" style="margin-left:0;">관리자가 되면 팀원 계정을 등록할 수 있어요.</p>
+      <button class="admin-btn" id="claim-admin-btn">내가 관리자 할게요</button>
+    </div>
+  `;
+}
+
 function renderHomeStatusCard(){
   if(!docLoaded) return '';
   if(!currentDoc){
@@ -744,6 +804,13 @@ function renderHome(){
   `;
 }
 function bindHomeEvents(){
+  const claimBtn = document.getElementById('claim-admin-btn');
+  if(claimBtn) claimBtn.addEventListener('click', async ()=>{
+    claimBtn.disabled = true; claimBtn.textContent = '처리 중...';
+    try{ await claimAdmin(); }catch(e){ console.error(e); }
+    render();
+  });
+
   const statusBtn = document.getElementById('home-status-btn');
   if(statusBtn) statusBtn.addEventListener('click', ()=>{ currentView='vote'; render(); });
 
@@ -1053,6 +1120,16 @@ function render(){
     </div>`;
     return;
   }
+  if(!authLoaded){
+    app.innerHTML = `<div class="loading">불러오는 중...</div>`;
+    return;
+  }
+  if(!authUser){
+    app.innerHTML = renderAuthScreen();
+    bindAuthEvents();
+    return;
+  }
+
   if(!teamEntryLoaded){
     app.innerHTML = `<div class="loading">불러오는 중...</div>`;
     return;
@@ -1082,6 +1159,21 @@ function render(){
     bindSiteHeader();
     bindRouletteEvents();
     return;
+  }
+  if(currentView==='change-password'){
+    app.innerHTML = renderSiteHeader() + renderChangePassword();
+    bindSiteHeader();
+    bindChangePasswordEvents();
+    return;
+  }
+  if(currentView==='members-admin'){
+    if(!isAdmin()){ currentView='home'; }
+    else {
+      app.innerHTML = renderSiteHeader() + renderMembersAdmin();
+      bindSiteHeader();
+      bindMembersAdminEvents();
+      return;
+    }
   }
   if(currentView==='budget'){
     app.innerHTML = renderSiteHeader() + renderBudget();
@@ -1135,23 +1227,26 @@ function renderSiteHeader(){
   return `
     <div class="nav-wrap">
       <div class="site-header">
-        <button class="menu-toggle" id="menu-toggle-btn">☰ MENU</button>
+        <div class="menu-hover-zone">
+          <button class="menu-toggle" id="menu-toggle-btn">☰ MENU</button>
+          <div class="menu-panel ${menuOpen?'open':''}" id="menu-panel">
+            <button class="menu-item" data-target="home">🏠 홈</button>
+            <button class="menu-item" data-target="vote">🗳️ 투표하기</button>
+            <button class="menu-item" data-target="budget">💰 복후비</button>
+            ${isAdmin() ? `<button class="menu-item" data-target="members-admin">👥 팀원 계정 등록</button>` : ''}
+            <button class="menu-item" data-target="change-password">🔑 비밀번호 변경</button>
+            <button class="menu-item" data-target="history">📖 지난 회식 기록</button>
+            <button class="menu-item" data-target="feedback">💬 피드백</button>
+            <button class="menu-item" data-target="roulette">🎡 룰렛</button>
+            ${authUser ? `<button class="menu-item" id="logout-btn">🚪 로그아웃 (${esc(authUser.displayName||authUser.email)})</button>` : ''}
+            ${teamId ? `<div class="menu-team-info">👥 ${esc(teamDoc && teamDoc.teamName ? teamDoc.teamName : '팀')} · 코드 ${esc(teamId)}</div>` : ''}
+          </div>
+        </div>
         <div class="site-header-brand" id="header-logo-btn">BOKPICK</div>
         <button class="menu-toggle" id="header-copy-btn">🔗 LINK</button>
       </div>
-      <div class="menu-panel ${menuOpen?'open':''}" id="menu-panel">
-        <button class="menu-item" data-target="home">🏠 홈</button>
-        <button class="menu-item" data-target="vote">🗳️ 투표하기</button>
-        <button class="menu-item" data-target="budget">💰 복후비</button>
-        <button class="menu-item" data-target="history">📖 지난 회식 기록</button>
-        <button class="menu-item" data-target="feedback">💬 피드백</button>
-        <button class="menu-item" data-target="roulette">🎡 룰렛</button>
-        ${teamId ? `<div class="menu-team-info">👥 ${esc(teamDoc && teamDoc.teamName ? teamDoc.teamName : '팀')} · 코드 ${esc(teamId)}</div>` : ''}
-      </div>
-    </div>
-  `;
+    </div>`;
 }
-
 function goHome(){
   currentView = 'home';
   menuOpen = false;
@@ -1201,6 +1296,109 @@ function bindSiteHeader(){
       render();
     });
   });
+
+  const logoutBtn = document.getElementById('logout-btn');
+  if(logoutBtn) logoutBtn.addEventListener('click', async ()=>{
+    menuOpen = false;
+    try{ await auth.signOut(); }catch(e){ console.error(e); }
+    currentView = 'home';
+    render();
+  });
+}
+
+/* ==================== 로그인/회원가입 ==================== */
+function renderAuthScreen(){
+  const isSignup = authMode==='signup';
+  return `
+    <div class="hero">
+      <div class="hero-badge">복후비<br>다 쓰는<br>그 날까지</div>
+      <div class="hero-top"><img class="logo-img" src="${BOKPICK_LOGO_SRC}" alt="BOKPICK"></div>
+      <div class="dashed-path"></div>
+      <p class="sub">${isSignup ? '계정을 만들어주세요' : '로그인해주세요'}</p>
+    </div>
+
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">${isSignup ? '🐱 회원가입' : '🔐 로그인'}</div>
+      ${isSignup ? `
+        <div style="margin-left:0; margin-bottom:10px;">
+          <input type="text" id="auth-name" placeholder="이름(닉네임)" value="${esc(authForm.displayName)}">
+        </div>
+      ` : ''}
+      <div style="margin-left:0; margin-bottom:10px;">
+        <input type="text" id="auth-email" placeholder="아이디" value="${esc(authForm.email)}">
+      </div>
+      <div style="margin-left:0; margin-bottom:10px;">
+        <input type="password" id="auth-password" placeholder="비밀번호(6자 이상)" value="${esc(authForm.password)}">
+      </div>
+      ${isSignup ? `
+        <div style="margin-left:0; margin-bottom:10px;">
+          <input type="password" id="auth-password2" placeholder="비밀번호 확인" value="${esc(authForm.password2)}">
+        </div>
+      ` : ''}
+      ${authError ? `<div class="error-text" style="margin-left:0;">${esc(authError)}</div>` : ''}
+      <button class="submit-btn" id="auth-submit-btn">${isSignup ? '회원가입' : '로그인'}</button>
+      <div style="text-align:center; margin-top:14px; font-size:12.5px;">
+        ${isSignup
+          ? `이미 계정이 있으신가요? <button class="ghost-btn" id="auth-switch-btn" style="border:none; text-decoration:underline; background:none;">로그인하기</button>`
+          : `계정이 없으신가요? <button class="ghost-btn" id="auth-switch-btn" style="border:none; text-decoration:underline; background:none;">회원가입하기</button>`
+        }
+      </div>
+      ${!isSignup ? `<p class="hint" style="text-align:center;">비밀번호를 잊으면 관리자에게 새 계정 등록을 요청해주세요.</p>` : ''}
+    </div>
+  `;
+}
+
+function bindAuthEvents(){
+  const isSignup = authMode==='signup';
+  const nameInput = document.getElementById('auth-name');
+  if(nameInput) nameInput.addEventListener('input', e=> authForm.displayName = e.target.value );
+  document.getElementById('auth-email').addEventListener('input', e=> authForm.email = e.target.value );
+  document.getElementById('auth-password').addEventListener('input', e=> authForm.password = e.target.value );
+  const pw2 = document.getElementById('auth-password2');
+  if(pw2) pw2.addEventListener('input', e=> authForm.password2 = e.target.value );
+
+  document.getElementById('auth-switch-btn').addEventListener('click', ()=>{
+    authMode = isSignup ? 'login' : 'signup';
+    authError = '';
+    render();
+  });
+
+  document.getElementById('auth-submit-btn').addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    const username = authForm.email.trim();
+    const password = authForm.password;
+    if(!username || !password){ authError='아이디와 비밀번호를 입력해주세요.'; render(); return; }
+    const pseudoEmail = usernameToEmail(username);
+    if(isSignup){
+      const name = authForm.displayName.trim();
+      if(!name){ authError='이름을 입력해주세요.'; render(); return; }
+      if(password.length<6){ authError='비밀번호는 6자 이상이어야 해요.'; render(); return; }
+      if(password !== authForm.password2){ authError='비밀번호가 서로 달라요.'; render(); return; }
+      btn.disabled=true; btn.textContent='가입 중...';
+      try{
+        const cred = await auth.createUserWithEmailAndPassword(pseudoEmail, password);
+        await cred.user.updateProfile({ displayName: name });
+        if(teamId){ await saveUserTeamMapping(cred.user.uid); }
+        authUser = auth.currentUser;
+        render();
+      }catch(e){
+        console.error(e);
+        authError = e.code==='auth/email-already-in-use' ? '이미 사용중인 아이디예요.' : '가입에 실패했어요. 다시 시도해주세요.';
+        btn.disabled=false; btn.textContent='회원가입';
+        render();
+      }
+    } else {
+      btn.disabled=true; btn.textContent='로그인 중...';
+      try{
+        await auth.signInWithEmailAndPassword(pseudoEmail, password);
+      }catch(e){
+        console.error(e);
+        authError = '아이디 또는 비밀번호가 올바르지 않아요.';
+        btn.disabled=false; btn.textContent='로그인';
+        render();
+      }
+    }
+  });
 }
 
 /* ==================== 팀 스페이스 입장/생성 ==================== */
@@ -1213,67 +1411,42 @@ function renderTeamEntry(){
       <div class="hero-badge">복후비<br>다 쓰는<br>그 날까지</div>
       <div class="hero-top"><img class="logo-img" src="${BOKPICK_LOGO_SRC}" alt="BOKPICK"></div>
       <div class="dashed-path"></div>
-      <p class="sub">우리 팀만의 투표 공간을 만들거나, 받은 코드로 들어가세요</p>
+      <p class="sub">소속팀 이름을 입력해주세요</p>
     </div>
     <div class="checker-divider"></div>
 
     <div class="card">
-      <div class="step-label"><span class="step-num">1</span> 새 팀 스페이스 만들기</div>
-      <p class="step-desc">다른 팀과 완전히 분리된 우리 팀만의 공간이 생겨요</p>
-      <div style="margin-left:38px;"><input type="text" id="team-name-input" placeholder="팀 이름 (예: 마케팅팀)" value="${esc(teamEntryForm.newTeamName)}"></div>
-      <button class="submit-btn" id="team-create-btn">새 팀 스페이스 만들기</button>
+      <div class="step-label"><span class="step-num">1</span> 소속팀 이름</div>
+      <p class="step-desc">이미 있는 팀 이름이면 바로 들어가고, 없으면 새로 만들어져요</p>
+      <div style="margin-left:38px;"><input type="text" id="team-name-input" placeholder="예: 그래픽2팀" value="${esc(teamEntryForm.newTeamName)}"></div>
+      ${teamEntryError ? `<div class="error-text">${esc(teamEntryError)}</div>` : ''}
+      <button class="submit-btn" id="team-enter-btn">입장하기</button>
     </div>
-
-    <div class="divider-title"><span>또는</span></div>
-
-    <div class="card">
-      <div class="step-label"><span class="step-num">2</span> 받은 코드로 입장하기</div>
-      <p class="step-desc">팀 관리자에게 받은 코드를 입력해주세요</p>
-      <div style="margin-left:38px;"><input type="text" id="team-join-input" placeholder="예: A1B2C3" value="${esc(teamEntryForm.joinCode)}" style="text-transform:uppercase;"></div>
-      <button class="submit-btn" id="team-join-btn">코드로 입장하기</button>
-    </div>
-    ${teamEntryError ? `<div class="error-text" style="margin-left:0;">${esc(teamEntryError)}</div>` : ''}
   `;
 }
 
 function bindTeamEntryEvents(){
   document.getElementById('team-name-input').addEventListener('input', e=> teamEntryForm.newTeamName = e.target.value );
-  document.getElementById('team-join-input').addEventListener('input', e=> teamEntryForm.joinCode = e.target.value.toUpperCase() );
 
-  document.getElementById('team-create-btn').addEventListener('click', async (ev)=>{
+  document.getElementById('team-enter-btn').addEventListener('click', async (ev)=>{
     const btn = ev.currentTarget;
-    btn.disabled = true; btn.textContent = '만드는 중...';
-    const name = teamEntryForm.newTeamName.trim() || '우리팀';
-    const code = genTeamCode();
-    try{
-      await teamsRef.doc(code).set({ teamName: name, createdAt: Date.now() });
-      enterTeam(code, { teamName: name });
-    }catch(e){
-      console.error(e);
-      teamEntryError = '팀 스페이스 생성에 실패했어요. Firebase 설정을 확인해주세요.';
-      btn.disabled = false; btn.textContent = '새 팀 스페이스 만들기';
-      render();
-    }
-  });
-
-  document.getElementById('team-join-btn').addEventListener('click', async (ev)=>{
-    const btn = ev.currentTarget;
-    const code = teamEntryForm.joinCode.trim().toUpperCase();
-    if(!code){ teamEntryError = '코드를 입력해주세요.'; render(); return; }
+    const name = teamEntryForm.newTeamName.trim();
+    if(!name){ teamEntryError = '소속팀 이름을 입력해주세요.'; render(); return; }
+    if(name.includes('/')){ teamEntryError = "이름에 '/' 는 사용할 수 없어요."; render(); return; }
     btn.disabled = true; btn.textContent = '확인 중...';
     try{
-      const snap = await teamsRef.doc(code).get();
-      if(!snap.exists){
-        teamEntryError = '존재하지 않는 코드예요. 다시 확인해주세요.';
-        btn.disabled = false; btn.textContent = '코드로 입장하기';
-        render();
-        return;
+      const snap = await teamsRef.doc(name).get();
+      if(snap.exists){
+        enterTeam(name, snap.data());
+      } else {
+        const newTeamData = { teamName: name, createdAt: Date.now(), adminUid: authUser ? authUser.uid : null };
+        await teamsRef.doc(name).set(newTeamData);
+        enterTeam(name, newTeamData);
       }
-      enterTeam(code, snap.data());
     }catch(e){
       console.error(e);
       teamEntryError = '입장에 실패했어요. 다시 시도해주세요.';
-      btn.disabled = false; btn.textContent = '코드로 입장하기';
+      btn.disabled = false; btn.textContent = '입장하기';
       render();
     }
   });
@@ -1283,6 +1456,7 @@ function enterTeam(code, data){
   teamId = code;
   teamDoc = data;
   teamEntryError = '';
+  teamEntryLoaded = true;
   const url = new URL(window.location.href);
   url.searchParams.set('team', code);
   window.history.replaceState(null, '', url.toString());
@@ -1290,6 +1464,9 @@ function enterTeam(code, data){
   attachPollListener();
   attachMembersListener();
   attachBudgetListener();
+  if(authUser){
+    saveUserTeamMapping(authUser.uid).catch(e=>console.error(e));
+  }
 }
 
 /* ==================== 캘린더 렌더 ==================== */
@@ -1413,6 +1590,7 @@ function renderVoting(doc){
   const showFood = [...voteForm.activities].some(a=>NEEDS_FOOD.includes(a));
   const dateSet = new Set(doc.dates||[]);
   const pct = Math.min(100, Math.round(res.total / doc.teamSize * 100));
+  if(authUser && !editingName) voteForm.name = authUser.displayName || authUser.email;
 
   return `
     ${heroBlock('활동 · 메뉴 · 날짜를 한 번에 투표해요', doc)}
@@ -1424,8 +1602,7 @@ function renderVoting(doc){
 
     <div class="card">
       <div class="step-label"><span class="step-num">1</span> 이름</div>
-      <p class="step-desc" style="margin-left:0;">명단에서 골라주세요</p>
-      ${renderNamePicker('vote', voteForm.name)}
+      <div style="margin-left:38px; font-size:15px; font-weight:700;">👤 ${esc(voteForm.name)}</div>
     </div>
 
     <div class="card">
@@ -1500,7 +1677,7 @@ function renderVoting(doc){
     <div class="card">
       <div class="step-label" style="font-size:16px;">🙋 투표한 사람 (${res.total}명)</div>
       <div class="voter-list">
-        ${Object.keys(doc.votes||{}).map(n=>`<span class="voter-tag">${esc(n)} <button data-name="${esc(n)}" class="edit-vote">수정</button></span>`).join('')}
+        ${Object.keys(doc.votes||{}).map(n=>`<span class="voter-tag">${esc(n)} ${(authUser && n===(authUser.displayName||authUser.email))?`<button data-name="${esc(n)}" class="edit-vote">수정</button>`:''}</span>`).join('')}
       </div>
     </div>
     <div class="card">
@@ -1538,8 +1715,6 @@ function renderOtherBlock(kind){
 }
 
 function bindVotingEvents(doc){
-  bindNamePicker('vote', (name)=>{ voteForm.name = name; render(); });
-
   document.querySelectorAll('#activity-grid .option-pill').forEach(el=>{
     el.addEventListener('click', ()=>{
       const val = el.dataset.val;
@@ -1674,6 +1849,7 @@ function renderRestaurant(doc){
   const votes = (doc.restaurant && doc.restaurant.votes) || {};
   const pct = Math.min(100, Math.round(restoRes.total / doc.teamSize * 100));
   const dateInfo = res.winnerDate ? fmtDate(res.winnerDate) : null;
+  if(authUser && !editingRestoVoter) restaurantForm.name = authUser.displayName || authUser.email;
 
   return `
     ${heroBlock('1차 투표 결과에 따라 식당을 정해요', doc)}
@@ -1716,8 +1892,7 @@ function renderRestaurant(doc){
 
     <div class="card">
       <div class="step-label"><span class="step-num">2</span> 이름</div>
-      <p class="step-desc" style="margin-left:0;">명단에서 골라주세요</p>
-      ${renderNamePicker('resto', restaurantForm.name)}
+      <div style="margin-left:38px; font-size:15px; font-weight:700;">👤 ${esc(restaurantForm.name)}</div>
     </div>
 
     <div class="card">
@@ -1737,7 +1912,7 @@ function renderRestaurant(doc){
     <div class="card">
       <div class="step-label" style="font-size:16px;">🙋 식당 투표한 사람 (${restoRes.total}명)</div>
       <div class="voter-list">
-        ${Object.keys(votes).map(n=>`<span class="voter-tag">${esc(n)} <button data-name="${esc(n)}" class="edit-resto-vote">수정</button></span>`).join('')}
+        ${Object.keys(votes).map(n=>`<span class="voter-tag">${esc(n)} ${(authUser && n===(authUser.displayName||authUser.email))?`<button data-name="${esc(n)}" class="edit-resto-vote">수정</button>`:''}</span>`).join('')}
       </div>
     </div>` : ''}
 
@@ -1805,8 +1980,6 @@ function bindRestaurantEvents(doc){
       restaurantForm.newOptionName=''; restaurantForm.newOptionNote='';
     }catch(e){ console.error(e); restoAddError='추가에 실패했어요.'; render(); }
   });
-
-  bindNamePicker('resto', (name)=>{ restaurantForm.name = name; render(); });
 
   document.querySelectorAll('.resto-pill[data-id]').forEach(el=>{
     el.addEventListener('click', ()=>{ restaurantForm.selectedOptionId = el.dataset.id; render(); });
@@ -2257,6 +2430,107 @@ let budgetTotalInput = '';
 let expenseForm = { amount:'', memo:'' };
 let expenseDeleteConfirmId = null;
 
+let changePwForm = { current:'', new1:'', new2:'' };
+let changePwError = '';
+let changePwSuccess = '';
+
+function renderChangePassword(){
+  return `
+    ${heroBlock('비밀번호를 변경해요')}
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">🔑 비밀번호 변경</div>
+      <div style="margin-bottom:8px;"><input type="password" id="pw-current" placeholder="현재 비밀번호" value="${esc(changePwForm.current)}"></div>
+      <div style="margin-bottom:8px;"><input type="password" id="pw-new1" placeholder="새 비밀번호(6자 이상)" value="${esc(changePwForm.new1)}"></div>
+      <div style="margin-bottom:8px;"><input type="password" id="pw-new2" placeholder="새 비밀번호 확인" value="${esc(changePwForm.new2)}"></div>
+      ${changePwError ? `<div class="error-text" style="margin-left:0;">${esc(changePwError)}</div>` : ''}
+      ${changePwSuccess ? `<p class="hint" style="color:var(--ink); font-weight:700;">${esc(changePwSuccess)}</p>` : ''}
+      <button class="submit-btn" id="pw-change-btn">비밀번호 변경</button>
+    </div>
+  `;
+}
+function bindChangePasswordEvents(){
+  document.getElementById('pw-current').addEventListener('input', e=> changePwForm.current = e.target.value );
+  document.getElementById('pw-new1').addEventListener('input', e=> changePwForm.new1 = e.target.value );
+  document.getElementById('pw-new2').addEventListener('input', e=> changePwForm.new2 = e.target.value );
+
+  document.getElementById('pw-change-btn').addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    const { current, new1, new2 } = changePwForm;
+    if(!current || !new1){ changePwError='현재 비밀번호와 새 비밀번호를 입력해주세요.'; changePwSuccess=''; render(); return; }
+    if(new1.length<6){ changePwError='새 비밀번호는 6자 이상이어야 해요.'; changePwSuccess=''; render(); return; }
+    if(new1 !== new2){ changePwError='새 비밀번호가 서로 달라요.'; changePwSuccess=''; render(); return; }
+    changePwError=''; btn.disabled=true; btn.textContent='변경 중...';
+    try{
+      const cred = firebase.auth.EmailAuthProvider.credential(authUser.email, current);
+      await authUser.reauthenticateWithCredential(cred);
+      await authUser.updatePassword(new1);
+      changePwSuccess = '비밀번호가 변경됐어요!';
+      changePwForm = { current:'', new1:'', new2:'' };
+    }catch(e){
+      console.error(e);
+      changePwError = e.code==='auth/wrong-password' ? '현재 비밀번호가 올바르지 않아요.' : '변경에 실패했어요. 다시 시도해주세요.';
+    }
+    btn.disabled=false; btn.textContent='비밀번호 변경';
+    render();
+  });
+}
+
+let newAccountForm = { name:'', email:'', password:'' };
+let newAccountError = '';
+let createdAccountsLog = [];
+
+function renderMembersAdmin(){
+  return `
+    ${heroBlock('팀원 계정을 미리 등록해줄 수 있어요')}
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">👥 팀원 계정 만들기</div>
+      <p class="step-desc" style="margin-left:0;">아이디와 초기 비밀번호를 정해서 팀원에게 전달해주세요. 로그인 후 비밀번호는 각자 바꿀 수 있어요.</p>
+      <div style="margin-bottom:8px;"><input type="text" id="na-name" placeholder="이름" value="${esc(newAccountForm.name)}"></div>
+      <div style="margin-bottom:8px;"><input type="text" id="na-email" placeholder="아이디" value="${esc(newAccountForm.email)}"></div>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="na-password" placeholder="초기 비밀번호(6자 이상)" value="${esc(newAccountForm.password)}" style="flex:1;">
+        <button class="ghost-btn" id="na-random-btn">자동생성</button>
+      </div>
+      ${newAccountError ? `<div class="error-text" style="margin-left:0;">${esc(newAccountError)}</div>` : ''}
+      <button class="submit-btn" id="na-create-btn">계정 만들기</button>
+    </div>
+    ${createdAccountsLog.length ? `
+    <div class="card">
+      <div class="step-label" style="font-size:15px;">✅ 방금 만든 계정 (지금만 보여요, 꼭 전달해두세요)</div>
+      ${createdAccountsLog.map(a=>`<div class="history-item"><div class="h-date">${esc(a.name)}</div><div class="h-meta">${esc(a.email)} / 초기비번: ${esc(a.password)}</div></div>`).join('')}
+    </div>` : ''}
+  `;
+}
+function bindMembersAdminEvents(){
+  document.getElementById('na-name').addEventListener('input', e=> newAccountForm.name=e.target.value );
+  document.getElementById('na-email').addEventListener('input', e=> newAccountForm.email=e.target.value );
+  document.getElementById('na-password').addEventListener('input', e=> newAccountForm.password=e.target.value );
+  document.getElementById('na-random-btn').addEventListener('click', ()=>{
+    newAccountForm.password = Math.random().toString(36).slice(2,10);
+    render();
+  });
+  document.getElementById('na-create-btn').addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    const name = newAccountForm.name.trim();
+    const email = newAccountForm.email.trim();
+    const password = newAccountForm.password;
+    if(!name || !email || !password){ newAccountError='이름, 이메일, 비밀번호를 모두 입력해주세요.'; render(); return; }
+    if(password.length<6){ newAccountError='비밀번호는 6자 이상이어야 해요.'; render(); return; }
+    newAccountError='';
+    btn.disabled=true; btn.textContent='만드는 중...';
+    try{
+      await adminCreateAccount(name, email, password);
+      createdAccountsLog.unshift({name, email, password});
+      newAccountForm = { name:'', email:'', password:'' };
+    }catch(e){
+      console.error(e);
+      newAccountError = e.code==='auth/email-already-in-use' ? '이미 사용중인 아이디예요.' : '계정 생성에 실패했어요.';
+    }
+    btn.disabled=false; btn.textContent='계정 만들기';
+    render();
+  });
+}
+
 function renderBudget(){
   const total = (budgetDoc && budgetDoc.totalBudget) || 0;
   const expenses = (budgetDoc && budgetDoc.expenses) || [];
@@ -2376,26 +2650,42 @@ function bindBudgetEvents(){
 }
 
 /* ==================== 시작 ==================== */
-async function bootstrap(){
-  if(!firebaseReady){ render(); return; }
+async function resolveTeamForUser(){
+  if(teamId){ teamEntryLoaded = true; return; } // 이미 URL 등으로 해결됨
   const urlTeamId = getTeamIdFromUrl();
   if(urlTeamId){
     try{
       const snap = await teamsRef.doc(urlTeamId).get();
       if(snap.exists){
-        teamId = urlTeamId;
-        teamDoc = snap.data();
-        setTeamRefs(urlTeamId);
-        attachPollListener();
-        attachMembersListener();
-  attachBudgetListener();
+        enterTeam(urlTeamId, snap.data());
+        return;
       }
-      // 존재하지 않는 코드면 teamId를 null로 두어 입장 화면을 보여줌
-    }catch(e){
-      console.error(e);
-    }
+    }catch(e){ console.error(e); }
   }
-  teamEntryLoaded = true;
+  // URL에 팀 코드가 없으면, 이전에 등록된 소속 팀을 찾아 자동 입장
+  try{
+    const mapped = await lookupUserTeam(authUser.uid);
+    if(mapped && mapped.teamId){
+      const teamSnap = await teamsRef.doc(mapped.teamId).get();
+      if(teamSnap.exists){
+        enterTeam(mapped.teamId, teamSnap.data());
+        return;
+      }
+    }
+  }catch(e){ console.error(e); }
+  teamEntryLoaded = true; // 소속 팀을 못 찾음 -> 팀 입장 화면 표시
+}
+
+async function bootstrap(){
+  if(!firebaseReady){ render(); return; }
+  auth.onAuthStateChanged(async (user)=>{
+    authUser = user;
+    authLoaded = true;
+    if(user){
+      await resolveTeamForUser();
+    }
+    render();
+  });
   render();
 }
 bootstrap();
