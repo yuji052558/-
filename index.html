@@ -166,15 +166,15 @@
   .menu-panel{
     position:absolute; top:100%; left:0;
     width:240px; max-width:80vw;
-    max-height:0; overflow:hidden; opacity:0; pointer-events:none;
+    max-height:0; overflow-y:auto; opacity:0; pointer-events:none;
     transition:max-height .22s ease, opacity .18s ease;
     background:var(--white); border:0 solid var(--ink); border-radius:14px;
     box-shadow:0 12px 28px rgba(0,0,0,0.2);
     z-index:45;
   }
-  .menu-panel.open{ max-height:320px; border-width:1.5px; opacity:1; pointer-events:auto; }
+  .menu-panel.open{ max-height:min(70vh, 560px); border-width:1.5px; opacity:1; pointer-events:auto; }
   @media (hover:hover) and (pointer:fine){
-    .menu-hover-zone:hover .menu-panel{ max-height:320px; border-width:1.5px; opacity:1; pointer-events:auto; }
+    .menu-hover-zone:hover .menu-panel{ max-height:min(70vh, 560px); border-width:1.5px; opacity:1; pointer-events:auto; }
   }
   .menu-item{
     display:block; width:100%; text-align:left; background:none; border:none; border-bottom:1px solid var(--line);
@@ -439,13 +439,16 @@ let feedbackRef = null;
 let membersRef = null;
 let budgetRef = null;
 let teamsRef = firebaseReady ? db.collection('teams') : null;
+let orgDivisionsRef = firebaseReady ? db.collection('orgDivisions') : null;
+let orgDivisions = [];
+let orgDivisionsLoaded = false;
 let teamId = null;
 let teamDoc = null;
 let teamEntryLoaded = false;
 let authUser = null;
 let authLoaded = false;
 let authMode = 'login'; // 'login' | 'signup'
-let authForm = { email:'', password:'', password2:'', displayName:'' };
+let authForm = { email:'', password:'', password2:'', displayName:'', division:'', teamChoice:'' };
 let authError = '';
 let unsubscribePoll = null;
 let unsubscribeMembers = null;
@@ -541,6 +544,49 @@ async function saveUserTeamMapping(uid){
 async function lookupUserTeam(uid){
   const snap = await db.collection('userTeams').doc(uid).get();
   return snap.exists ? snap.data() : null;
+}
+
+/* ==================== 조직 구조 (본부/팀) - 관리자 전용 ==================== */
+async function loadOrgDivisions(){
+  try{
+    const snap = await orgDivisionsRef.get();
+    orgDivisions = snap.docs.map(d=>d.data());
+  }catch(e){
+    console.error(e);
+    orgDivisions = [];
+  }
+  orgDivisionsLoaded = true;
+  render();
+}
+async function addDivision(name){
+  await orgDivisionsRef.doc(name).set({ name, teams: [] }, { merge:true });
+  await loadOrgDivisions();
+}
+async function addTeamToDivision(divisionName, teamName, existingTeamId){
+  const teamId = (existingTeamId && existingTeamId.trim()) ? existingTeamId.trim() : `${divisionName}_${teamName}`;
+  await db.runTransaction(async (tx)=>{
+    const ref = orgDivisionsRef.doc(divisionName);
+    const snap = await tx.get(ref);
+    const teams = snap.exists ? (snap.data().teams||[]) : [];
+    const filtered = teams.filter(t=> (typeof t==='string' ? t : t.name) !== teamName);
+    filtered.push({ name: teamName, teamId });
+    tx.set(ref, { name: divisionName, teams: filtered });
+  });
+  await loadOrgDivisions();
+}
+async function removeTeamFromDivision(divisionName, teamName){
+  await db.runTransaction(async (tx)=>{
+    const ref = orgDivisionsRef.doc(divisionName);
+    const snap = await tx.get(ref);
+    if(!snap.exists) return;
+    const teams = (snap.data().teams||[]).filter(t=> (typeof t==='string' ? t : t.name) !== teamName);
+    tx.set(ref, { name: divisionName, teams });
+  });
+  await loadOrgDivisions();
+}
+async function removeDivision(divisionName){
+  await orgDivisionsRef.doc(divisionName).delete();
+  await loadOrgDivisions();
 }
 
 async function addExpense(amount, memo){
@@ -1125,6 +1171,10 @@ function render(){
     return;
   }
   if(!authUser){
+    if(!orgDivisionsLoaded){
+      app.innerHTML = `<div class="loading">불러오는 중...</div>`;
+      return;
+    }
     app.innerHTML = renderAuthScreen();
     bindAuthEvents();
     return;
@@ -1165,6 +1215,15 @@ function render(){
     bindSiteHeader();
     bindChangePasswordEvents();
     return;
+  }
+  if(currentView==='org-admin'){
+    if(!isAdmin()){ currentView='home'; }
+    else {
+      app.innerHTML = renderSiteHeader() + renderOrgAdmin();
+      bindSiteHeader();
+      bindOrgAdminEvents();
+      return;
+    }
   }
   if(currentView==='members-admin'){
     if(!isAdmin()){ currentView='home'; }
@@ -1234,6 +1293,7 @@ function renderSiteHeader(){
             <button class="menu-item" data-target="vote">🗳️ 투표하기</button>
             <button class="menu-item" data-target="budget">💰 복후비</button>
             ${isAdmin() ? `<button class="menu-item" data-target="members-admin">👥 팀원 계정 등록</button>` : ''}
+        ${isAdmin() ? `<button class="menu-item" data-target="org-admin">🏢 조직 구조 관리</button>` : ''}
             <button class="menu-item" data-target="change-password">🔑 비밀번호 변경</button>
             <button class="menu-item" data-target="history">📖 지난 회식 기록</button>
             <button class="menu-item" data-target="feedback">💬 피드백</button>
@@ -1323,6 +1383,23 @@ function renderAuthScreen(){
         <div style="margin-left:0; margin-bottom:10px;">
           <input type="text" id="auth-name" placeholder="이름(닉네임)" value="${esc(authForm.displayName)}">
         </div>
+        <div style="margin-left:0; margin-bottom:10px;">
+          <select id="auth-division-select" style="width:100%; padding:11px 13px; background:var(--cream); border:1.5px solid var(--line); border-radius:10px; font-family:inherit; font-size:14.5px; color:var(--ink);">
+            <option value="">본부 선택</option>
+            ${orgDivisions.map(d=>`<option value="${esc(d.name)}" ${authForm.division===d.name?'selected':''}>${esc(d.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div style="margin-left:0; margin-bottom:10px;">
+          <select id="auth-team-select" style="width:100%; padding:11px 13px; background:var(--cream); border:1.5px solid var(--line); border-radius:10px; font-family:inherit; font-size:14.5px; color:var(--ink);" ${authForm.division?'':'disabled'}>
+            <option value="">${authForm.division?'팀 선택':'먼저 본부를 선택해주세요'}</option>
+            ${((orgDivisions.find(d=>d.name===authForm.division)||{}).teams||[]).map(t=>{
+              const tn = typeof t==='string' ? t : t.name;
+              const tid = typeof t==='string' ? t : t.teamId;
+              return `<option value="${esc(tid)}" ${authForm.teamChoice===tid?'selected':''}>${esc(tn)}</option>`;
+            }).join('')}
+          </select>
+        </div>
+        ${orgDivisions.length===0 ? `<p class="hint">아직 등록된 본부/팀이 없어요. 관리자에게 문의해주세요.</p>` : ''}
       ` : ''}
       <div style="margin-left:0; margin-bottom:10px;">
         <input type="text" id="auth-email" placeholder="아이디" value="${esc(authForm.email)}">
@@ -1352,6 +1429,14 @@ function bindAuthEvents(){
   const isSignup = authMode==='signup';
   const nameInput = document.getElementById('auth-name');
   if(nameInput) nameInput.addEventListener('input', e=> authForm.displayName = e.target.value );
+  const divisionSelect = document.getElementById('auth-division-select');
+  if(divisionSelect) divisionSelect.addEventListener('change', e=>{
+    authForm.division = e.target.value;
+    authForm.teamChoice = '';
+    render();
+  });
+  const teamSelect = document.getElementById('auth-team-select');
+  if(teamSelect) teamSelect.addEventListener('change', e=> authForm.teamChoice = e.target.value );
   document.getElementById('auth-email').addEventListener('input', e=> authForm.email = e.target.value );
   document.getElementById('auth-password').addEventListener('input', e=> authForm.password = e.target.value );
   const pw2 = document.getElementById('auth-password2');
@@ -1371,15 +1456,28 @@ function bindAuthEvents(){
     const pseudoEmail = usernameToEmail(username);
     if(isSignup){
       const name = authForm.displayName.trim();
+      const division = authForm.division;
+      const teamChoiceId = authForm.teamChoice; // 이제 팀 표시이름이 아니라 실제 teamId
       if(!name){ authError='이름을 입력해주세요.'; render(); return; }
+      if(!division || !teamChoiceId){ authError='본부와 팀을 선택해주세요.'; render(); return; }
       if(password.length<6){ authError='비밀번호는 6자 이상이어야 해요.'; render(); return; }
       if(password !== authForm.password2){ authError='비밀번호가 서로 달라요.'; render(); return; }
+      const divObj = orgDivisions.find(d=>d.name===division);
+      const teamObj = divObj ? (divObj.teams||[]).find(t=> (typeof t==='string'?t:t.teamId)===teamChoiceId) : null;
+      const teamDisplayName = teamObj ? (typeof teamObj==='string'?teamObj:teamObj.name) : teamChoiceId;
       btn.disabled=true; btn.textContent='가입 중...';
       try{
         const cred = await auth.createUserWithEmailAndPassword(pseudoEmail, password);
         await cred.user.updateProfile({ displayName: name });
-        if(teamId){ await saveUserTeamMapping(cred.user.uid); }
         authUser = auth.currentUser;
+        const snap = await teamsRef.doc(teamChoiceId).get();
+        if(snap.exists){
+          enterTeam(teamChoiceId, snap.data());
+        } else {
+          const newTeamData = { teamName: teamDisplayName, division, createdAt: Date.now(), adminUid: authUser.uid };
+          await teamsRef.doc(teamChoiceId).set(newTeamData);
+          enterTeam(teamChoiceId, newTeamData);
+        }
         render();
       }catch(e){
         console.error(e);
@@ -1417,7 +1515,7 @@ function renderTeamEntry(){
 
     <div class="card">
       <div class="step-label"><span class="step-num">1</span> 소속팀 이름</div>
-      <p class="step-desc">이미 있는 팀 이름이면 바로 들어가고, 없으면 새로 만들어져요</p>
+      <p class="step-desc">이미 있는 팀 이름이면 바로 합류하고, 없으면 새로 만들어져요</p>
       <div style="margin-left:38px;"><input type="text" id="team-name-input" placeholder="예: 그래픽2팀" value="${esc(teamEntryForm.newTeamName)}"></div>
       ${teamEntryError ? `<div class="error-text">${esc(teamEntryError)}</div>` : ''}
       <button class="submit-btn" id="team-enter-btn">입장하기</button>
@@ -1432,7 +1530,6 @@ function bindTeamEntryEvents(){
     const btn = ev.currentTarget;
     const name = teamEntryForm.newTeamName.trim();
     if(!name){ teamEntryError = '소속팀 이름을 입력해주세요.'; render(); return; }
-    if(name.includes('/')){ teamEntryError = "이름에 '/' 는 사용할 수 없어요."; render(); return; }
     btn.disabled = true; btn.textContent = '확인 중...';
     try{
       const snap = await teamsRef.doc(name).get();
@@ -2479,6 +2576,104 @@ let newAccountForm = { name:'', email:'', password:'' };
 let newAccountError = '';
 let createdAccountsLog = [];
 
+let newDivisionName = '';
+let newTeamNameByDivision = {};
+let newTeamExistingIdByDivision = {};
+let orgAdminError = '';
+
+function renderOrgAdmin(){
+  return `
+    ${heroBlock('본부/팀 구조를 관리해요')}
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">🏢 본부 추가</div>
+      <p class="step-desc" style="margin-left:0;">회원가입 화면 드롭다운에 나올 본부를 추가해주세요</p>
+      <div class="other-add-row">
+        <input type="text" id="new-division-input" placeholder="본부 이름 (예: 개발본부)" value="${esc(newDivisionName)}">
+        <button id="add-division-btn">추가</button>
+      </div>
+      ${orgAdminError ? `<div class="error-text">${esc(orgAdminError)}</div>` : ''}
+    </div>
+    ${orgDivisions.length===0 ? `<p class="empty-note">아직 등록된 본부가 없어요.</p>` :
+      orgDivisions.map(d=>`
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div class="step-label" style="font-size:15px; margin-bottom:0;">🏢 ${esc(d.name)}</div>
+          <button class="ghost-btn rm-division-btn" data-div="${esc(d.name)}" style="padding:5px 9px; font-size:11px;">본부 삭제</button>
+        </div>
+        <div class="other-chip-row" style="margin:10px 0;">
+          ${(d.teams||[]).map(t=>{
+            const tn = typeof t==='string' ? t : t.name;
+            const tid = typeof t==='string' ? t : t.teamId;
+            return `<span class="other-chip" title="연결된 팀 ID: ${esc(tid)}">${esc(tn)} <button data-div="${esc(d.name)}" data-team="${esc(tn)}" class="rm-team-btn">✕</button></span>`;
+          }).join('')}
+          ${(!d.teams || d.teams.length===0) ? `<span class="hint" style="margin:0;">등록된 팀이 없어요</span>` : ''}
+        </div>
+        <div class="other-add-row">
+          <input type="text" class="new-team-input" data-div="${esc(d.name)}" placeholder="팀 이름" value="${esc(newTeamNameByDivision[d.name]||'')}">
+          <button class="add-team-btn" data-div="${esc(d.name)}">추가</button>
+        </div>
+        <div style="margin-top:8px;">
+          <input type="text" class="new-team-existing-id-input" data-div="${esc(d.name)}" placeholder="기존 팀 ID (있으면 입력, 없으면 비워두세요)" value="${esc(newTeamExistingIdByDivision[d.name]||'')}">
+        </div>
+        <p class="hint">※ 기존에 쓰던 팀 공간과 연결하려면 그 팀의 링크 뒤에 붙은 정확한 ID(예: 그래픽2팀)를 넣어주세요. 비워두면 새 공간이 만들어져요.</p>
+      </div>
+    `).join('')}
+  `;
+}
+
+function bindOrgAdminEvents(){
+  document.getElementById('new-division-input').addEventListener('input', e=> newDivisionName = e.target.value );
+  document.getElementById('add-division-btn').addEventListener('click', async (ev)=>{
+    const name = newDivisionName.trim();
+    if(!name){ orgAdminError='본부 이름을 입력해주세요.'; render(); return; }
+    orgAdminError = '';
+    ev.currentTarget.disabled = true;
+    try{
+      await addDivision(name);
+      newDivisionName = '';
+    }catch(e){ console.error(e); orgAdminError='추가에 실패했어요.'; }
+    render();
+  });
+
+  document.querySelectorAll('.new-team-input').forEach(el=>{
+    el.addEventListener('input', e=>{ newTeamNameByDivision[el.dataset.div] = e.target.value; });
+  });
+  document.querySelectorAll('.new-team-existing-id-input').forEach(el=>{
+    el.addEventListener('input', e=>{ newTeamExistingIdByDivision[el.dataset.div] = e.target.value; });
+  });
+  document.querySelectorAll('.add-team-btn').forEach(el=>{
+    el.addEventListener('click', async ()=>{
+      const div = el.dataset.div;
+      const teamName = (newTeamNameByDivision[div]||'').trim();
+      const existingId = (newTeamExistingIdByDivision[div]||'').trim();
+      if(!teamName) return;
+      el.disabled = true;
+      try{
+        await addTeamToDivision(div, teamName, existingId);
+        newTeamNameByDivision[div] = '';
+        newTeamExistingIdByDivision[div] = '';
+      }catch(e){ console.error(e); }
+      render();
+    });
+  });
+  document.querySelectorAll('.rm-team-btn').forEach(el=>{
+    el.addEventListener('click', async ()=>{
+      el.disabled = true;
+      try{ await removeTeamFromDivision(el.dataset.div, el.dataset.team); }
+      catch(e){ console.error(e); }
+      render();
+    });
+  });
+  document.querySelectorAll('.rm-division-btn').forEach(el=>{
+    el.addEventListener('click', async ()=>{
+      el.disabled = true;
+      try{ await removeDivision(el.dataset.div); }
+      catch(e){ console.error(e); }
+      render();
+    });
+  });
+}
+
 function renderMembersAdmin(){
   return `
     ${heroBlock('팀원 계정을 미리 등록해줄 수 있어요')}
@@ -2678,6 +2873,7 @@ async function resolveTeamForUser(){
 
 async function bootstrap(){
   if(!firebaseReady){ render(); return; }
+  loadOrgDivisions();
   auth.onAuthStateChanged(async (user)=>{
     authUser = user;
     authLoaded = true;
