@@ -529,12 +529,16 @@ function getSecondaryAuth(){
   }
   return secondaryApp.auth();
 }
-async function adminCreateAccount(name, username, password){
+async function adminCreateAccount(name, username, password, targetTeamId, targetTeamName){
+  const teamSnap = await teamsRef.doc(targetTeamId).get();
+  if(!teamSnap.exists){
+    await teamsRef.doc(targetTeamId).set({ teamName: targetTeamName, createdAt: Date.now(), adminUid: authUser.uid });
+  }
   const secAuth = getSecondaryAuth();
   const cred = await secAuth.createUserWithEmailAndPassword(usernameToEmail(username), password);
   await cred.user.updateProfile({ displayName: name });
   const uid = cred.user.uid;
-  await db.collection('userTeams').doc(uid).set({ teamId: teamId, teamName: (teamDoc && teamDoc.teamName) || '' });
+  await db.collection('userTeams').doc(uid).set({ teamId: targetTeamId, teamName: targetTeamName || '' });
   await secAuth.signOut();
   return uid;
 }
@@ -1361,9 +1365,27 @@ function bindSiteHeader(){
   if(logoutBtn) logoutBtn.addEventListener('click', async ()=>{
     menuOpen = false;
     try{ await auth.signOut(); }catch(e){ console.error(e); }
+    resetTeamState();
     currentView = 'home';
     render();
   });
+}
+
+function resetTeamState(){
+  if(unsubscribePoll){ unsubscribePoll(); unsubscribePoll = null; }
+  if(unsubscribeMembers){ unsubscribeMembers(); unsubscribeMembers = null; }
+  if(unsubscribeBudget){ unsubscribeBudget(); unsubscribeBudget = null; }
+  teamId = null;
+  teamDoc = null;
+  teamEntryLoaded = false;
+  currentDoc = null;
+  docLoaded = false;
+  memberNames = [];
+  budgetDoc = null;
+  budgetLoaded = false;
+  const url = new URL(window.location.href);
+  url.searchParams.delete('team');
+  window.history.replaceState(null, '', url.toString());
 }
 
 /* ==================== 로그인/회원가입 ==================== */
@@ -2572,7 +2594,7 @@ function bindChangePasswordEvents(){
   });
 }
 
-let newAccountForm = { name:'', email:'', password:'' };
+let newAccountForm = { name:'', email:'', password:'', division:'', teamChoice:'' };
 let newAccountError = '';
 let createdAccountsLog = [];
 
@@ -2681,6 +2703,22 @@ function renderMembersAdmin(){
       <div class="step-label" style="font-size:16px;">👥 팀원 계정 만들기</div>
       <p class="step-desc" style="margin-left:0;">아이디와 초기 비밀번호를 정해서 팀원에게 전달해주세요. 로그인 후 비밀번호는 각자 바꿀 수 있어요.</p>
       <div style="margin-bottom:8px;"><input type="text" id="na-name" placeholder="이름" value="${esc(newAccountForm.name)}"></div>
+      <div style="margin-bottom:8px;">
+        <select id="na-division-select" style="width:100%; padding:11px 13px; background:var(--cream); border:1.5px solid var(--line); border-radius:10px; font-family:inherit; font-size:14.5px; color:var(--ink);">
+          <option value="">본부 선택</option>
+          ${orgDivisions.map(d=>`<option value="${esc(d.name)}" ${newAccountForm.division===d.name?'selected':''}>${esc(d.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div style="margin-bottom:8px;">
+        <select id="na-team-select" style="width:100%; padding:11px 13px; background:var(--cream); border:1.5px solid var(--line); border-radius:10px; font-family:inherit; font-size:14.5px; color:var(--ink);" ${newAccountForm.division?'':'disabled'}>
+          <option value="">${newAccountForm.division?'팀 선택':'먼저 본부를 선택해주세요'}</option>
+          ${((orgDivisions.find(d=>d.name===newAccountForm.division)||{}).teams||[]).map(t=>{
+            const tn = typeof t==='string' ? t : t.name;
+            const tid = typeof t==='string' ? t : t.teamId;
+            return `<option value="${esc(tid)}" ${newAccountForm.teamChoice===tid?'selected':''}>${esc(tn)}</option>`;
+          }).join('')}
+        </select>
+      </div>
       <div style="margin-bottom:8px;"><input type="text" id="na-email" placeholder="아이디" value="${esc(newAccountForm.email)}"></div>
       <div style="display:flex; gap:8px;">
         <input type="text" id="na-password" placeholder="초기 비밀번호(6자 이상)" value="${esc(newAccountForm.password)}" style="flex:1;">
@@ -2692,12 +2730,19 @@ function renderMembersAdmin(){
     ${createdAccountsLog.length ? `
     <div class="card">
       <div class="step-label" style="font-size:15px;">✅ 방금 만든 계정 (지금만 보여요, 꼭 전달해두세요)</div>
-      ${createdAccountsLog.map(a=>`<div class="history-item"><div class="h-date">${esc(a.name)}</div><div class="h-meta">${esc(a.email)} / 초기비번: ${esc(a.password)}</div></div>`).join('')}
+      ${createdAccountsLog.map(a=>`<div class="history-item"><div class="h-date">${esc(a.name)} · ${esc(a.teamName)}</div><div class="h-meta">${esc(a.email)} / 초기비번: ${esc(a.password)}</div></div>`).join('')}
     </div>` : ''}
   `;
 }
 function bindMembersAdminEvents(){
   document.getElementById('na-name').addEventListener('input', e=> newAccountForm.name=e.target.value );
+  document.getElementById('na-division-select').addEventListener('change', e=>{
+    newAccountForm.division = e.target.value;
+    newAccountForm.teamChoice = '';
+    render();
+  });
+  const naTeamSelect = document.getElementById('na-team-select');
+  if(naTeamSelect) naTeamSelect.addEventListener('change', e=> newAccountForm.teamChoice = e.target.value );
   document.getElementById('na-email').addEventListener('input', e=> newAccountForm.email=e.target.value );
   document.getElementById('na-password').addEventListener('input', e=> newAccountForm.password=e.target.value );
   document.getElementById('na-random-btn').addEventListener('click', ()=>{
@@ -2709,14 +2754,20 @@ function bindMembersAdminEvents(){
     const name = newAccountForm.name.trim();
     const email = newAccountForm.email.trim();
     const password = newAccountForm.password;
-    if(!name || !email || !password){ newAccountError='이름, 이메일, 비밀번호를 모두 입력해주세요.'; render(); return; }
+    const division = newAccountForm.division;
+    const teamChoiceId = newAccountForm.teamChoice;
+    if(!name || !email || !password){ newAccountError='이름, 아이디, 비밀번호를 모두 입력해주세요.'; render(); return; }
+    if(!division || !teamChoiceId){ newAccountError='본부와 팀을 선택해주세요.'; render(); return; }
     if(password.length<6){ newAccountError='비밀번호는 6자 이상이어야 해요.'; render(); return; }
     newAccountError='';
     btn.disabled=true; btn.textContent='만드는 중...';
+    const divObj = orgDivisions.find(d=>d.name===division);
+    const teamObj = divObj ? (divObj.teams||[]).find(t=> (typeof t==='string'?t:t.teamId)===teamChoiceId) : null;
+    const teamDisplayName = teamObj ? (typeof teamObj==='string'?teamObj:teamObj.name) : teamChoiceId;
     try{
-      await adminCreateAccount(name, email, password);
-      createdAccountsLog.unshift({name, email, password});
-      newAccountForm = { name:'', email:'', password:'' };
+      await adminCreateAccount(name, email, password, teamChoiceId, teamDisplayName);
+      createdAccountsLog.unshift({ name, email, password, teamName: teamDisplayName });
+      newAccountForm = { name:'', email:'', password:'', division:'', teamChoice:'' };
     }catch(e){
       console.error(e);
       newAccountError = e.code==='auth/email-already-in-use' ? '이미 사용중인 아이디예요.' : '계정 생성에 실패했어요.';
