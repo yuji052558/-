@@ -23,9 +23,14 @@
     messagingSenderId: "34778982140",
     appId: "1:34778982140:web:779511ec35f89164d4d979"
   };
+  // 🔧 카카오 개발자센터에서 발급받은 JavaScript 키를 아래에 붙여넣으세요.
+  const KAKAO_JS_KEY = "a1a03b2be0a233048573d3bbbde10276";
 </script>
+<script src="https://t1.kakaocdn.net/kakao_js_sdk/2.8.1/kakao.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
 
 <style>
   :root{
@@ -259,6 +264,11 @@
     padding: 10px 16px; border-radius:10px; font-size:13px; cursor:pointer; font-family:'Noto Sans KR',sans-serif; font-weight:700;
   }
   .admin-btn:hover{ filter:brightness(0.95); }
+  .kakao-btn{
+    background: #FEE500; border:1.5px solid var(--ink); color:#191919;
+    padding: 10px 12px; border-radius:10px; font-size:13px; cursor:pointer; font-family:'Noto Sans KR',sans-serif; font-weight:700;
+  }
+  .kakao-btn:hover{ filter:brightness(0.95); }
   .error-text{ color: var(--red); font-size: 12.5px; margin: 8px 0 0 38px; }
   .hint{ color: var(--muted); font-size:12px; margin: 6px 0 0; }
 
@@ -491,6 +501,7 @@ let finalizeForm = { time:'', optionId:null };
 let restoCloseConfirming = false;
 
 let newPollConfirming = false;
+let doneConfettiFired = false;
 
 function emptyVoteForm(){
   return { name:'', activities:new Set(), activityNotes:[], activityNoteInput:'',
@@ -1595,13 +1606,18 @@ function renderDone(doc){
   const dateInfo = s.date ? fmtDate(s.date) : null;
   return `
     ${heroBlock('이번 회식이 확정됐어요 🎉', doc)}
-    <div class="final-card">
+    <div class="final-card" id="final-card-capture">
       <div class="tag">CONFIRMED</div>
       <h2>${dateInfo ? `${dateInfo.md} (${dateInfo.dow}요일)` : '날짜 미정'}</h2>
       <div class="final-row"><span>활동</span><b>${(s.activities||[]).map(esc).join(', ')||'-'}</b></div>
       ${s.foods && s.foods.length ? `<div class="final-row"><span>메뉴</span><b>${s.foods.map(esc).join(', ')}</b></div>` : ''}
       ${s.restaurantName ? `<div class="final-row"><span>식당</span><b>${esc(s.restaurantName)}</b></div>` : ''}
       ${s.time ? `<div class="final-row"><span>시간</span><b>${esc(s.time)}</b></div>` : ''}
+    </div>
+    <div style="display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap;">
+      <button class="kakao-btn" id="kakao-share-btn" style="flex:1; min-width:130px;">💬 카카오톡 공유</button>
+      <button class="admin-btn" id="share-card-btn" style="flex:1; min-width:100px;">🔗 공유하기</button>
+      <button class="ghost-btn" id="save-card-img-btn" style="flex:1; min-width:100px;">📸 이미지 저장</button>
     </div>
     <div class="footer-note">
       이번 결과는 지난 회식 기록에도 자동으로 저장됐어요.<br>
@@ -1615,7 +1631,105 @@ function renderDone(doc){
     </div>
   `;
 }
+function buildFinalSummaryText(doc){
+  const s = doc.finalSummary || {};
+  const dateInfo = s.date ? fmtDate(s.date) : null;
+  const lines = [`🎉 ${doc.title||'회식'} 확정!`];
+  lines.push(dateInfo ? `📅 ${dateInfo.md} (${dateInfo.dow}요일)` : '📅 날짜 미정');
+  lines.push(`🍽 ${(s.activities||[]).join(', ')||'-'}`);
+  if(s.foods && s.foods.length) lines.push(`🍚 ${s.foods.join(', ')}`);
+  if(s.restaurantName) lines.push(`📍 ${s.restaurantName}`);
+  if(s.time) lines.push(`🕐 ${s.time}`);
+  return lines.join('\n');
+}
+
+function getLogoImageUrl(){
+  return `${window.location.origin}${window.location.pathname.replace(/index\.html$/,'')}bokpick-logo.png`;
+}
+
+function shareToKakao(doc){
+  if(!window.Kakao){ return false; }
+  if(!Kakao.isInitialized()){
+    if(!KAKAO_JS_KEY || KAKAO_JS_KEY==='YOUR_KAKAO_JAVASCRIPT_KEY') return false;
+    Kakao.init(KAKAO_JS_KEY);
+  }
+  const s = doc.finalSummary || {};
+  const dateInfo = s.date ? fmtDate(s.date) : null;
+  const url = `${window.location.origin}${window.location.pathname}?team=${teamId}`;
+  const descParts = [];
+  descParts.push(dateInfo ? `${dateInfo.md} (${dateInfo.dow})` : '날짜 미정');
+  if(s.foods && s.foods.length) descParts.push(s.foods.join(', '));
+  if(s.restaurantName) descParts.push(s.restaurantName);
+  if(s.time) descParts.push(s.time);
+
+  Kakao.Share.sendDefault({
+    objectType: 'feed',
+    content: {
+      title: `🐱 ${doc.title||'회식'} 확정!`,
+      description: descParts.join(' · '),
+      imageUrl: getLogoImageUrl(),
+      link: { mobileWebUrl: url, webUrl: url }
+    },
+    buttons: [
+      { title: '결과 보기', link: { mobileWebUrl: url, webUrl: url } }
+    ]
+  });
+  return true;
+}
+
+function fireConfetti(){
+  if(typeof confetti !== 'function') return;
+  confetti({ particleCount: 120, spread: 90, origin: { y: 0.6 }, colors: ['#F9D423','#111111','#FF4B3E','#FFFFFF'] });
+  setTimeout(()=>{
+    confetti({ particleCount: 60, spread: 70, origin: { y: 0.4 }, colors: ['#F9D423','#111111','#FF4B3E'] });
+  }, 300);
+}
+
 function bindDoneEvents(doc){
+  if(!doneConfettiFired){
+    fireConfetti();
+    doneConfettiFired = true;
+  }
+
+  const kakaoBtn = document.getElementById('kakao-share-btn');
+  if(kakaoBtn) kakaoBtn.addEventListener('click', ()=>{
+    const ok = shareToKakao(doc);
+    if(!ok){
+      kakaoBtn.textContent = '⚠️ 카카오 설정이 필요해요';
+      setTimeout(()=>{ kakaoBtn.textContent = '💬 카카오톡 공유'; }, 2000);
+    }
+  });
+
+  const shareBtn = document.getElementById('share-card-btn');
+  if(shareBtn) shareBtn.addEventListener('click', async ()=>{
+    const text = buildFinalSummaryText(doc);
+    const url = `${window.location.origin}${window.location.pathname}?team=${teamId}`;
+    if(navigator.share){
+      try{ await navigator.share({ title: 'BOKPICK 회식 확정!', text, url }); }catch(e){}
+    } else {
+      try{
+        await navigator.clipboard.writeText(`${text}\n${url}`);
+        shareBtn.textContent = '✅ 복사됨! 카톡에 붙여넣으세요';
+        setTimeout(()=>{ shareBtn.textContent = '🔗 공유하기'; }, 2000);
+      }catch(e){ console.error(e); }
+    }
+  });
+
+  const saveImgBtn = document.getElementById('save-card-img-btn');
+  if(saveImgBtn) saveImgBtn.addEventListener('click', async ()=>{
+    const el = document.getElementById('final-card-capture');
+    if(!el || typeof html2canvas !== 'function') return;
+    saveImgBtn.disabled = true; saveImgBtn.textContent = '만드는 중...';
+    try{
+      const canvas = await html2canvas(el, { backgroundColor: null, scale: 2 });
+      const link = document.createElement('a');
+      link.download = 'bokpick-회식확정.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }catch(e){ console.error(e); }
+    saveImgBtn.disabled = false; saveImgBtn.textContent = '📸 이미지 저장';
+  });
+
   const b = document.getElementById('newpoll-btn');
   if(b) b.addEventListener('click', ()=>{ newPollConfirming=true; render(); });
   const cancel = document.getElementById('newpoll-cancel-btn');
@@ -1625,6 +1739,7 @@ function bindDoneEvents(doc){
     const btn = ev.currentTarget;
     btn.disabled=true; btn.textContent='시작하는 중...';
     setupState = { title:'우리팀 회식', teamSize: doc.teamSize||8, month: defaultMonth(), weekdayOnly:true, excluded:new Set() };
+    doneConfettiFired = false;
     try{ await startNewPoll(); }catch(e){ console.error(e); }
     newPollConfirming=false;
   });
