@@ -352,6 +352,12 @@
   .final-row{ display:flex; justify-content:center; gap:8px; font-size:14px; margin-bottom:6px; }
   .final-row b{ color: var(--yellow); }
 
+  /* 이미지 저장(캡처) 시에만 적용되는 스타일: 배지 숨기고 카드 간격을 없애 하나의 이미지처럼 붙임 */
+  #final-card-capture.capturing .hero{ margin-bottom:0; border-bottom:none; border-radius:22px 22px 0 0; }
+  #final-card-capture.capturing .hero-badge{ display:none; }
+  #final-card-capture.capturing .checker-divider{ margin:0; border-radius:0; }
+  #final-card-capture.capturing .final-card{ margin-bottom:0; border-radius:0 0 20px 20px; }
+
   .history-item{
     border:1.5px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:10px; background:var(--white);
   }
@@ -1679,6 +1685,36 @@ function shareToKakao(doc){
   return true;
 }
 
+function showImagePreview(dataUrl){
+  const existing = document.getElementById('img-preview-overlay');
+  if(existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'img-preview-overlay';
+  overlay.style.cssText = 'position:fixed; inset:0; background:rgba(17,17,17,0.8); z-index:200; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; gap:16px;';
+  overlay.innerHTML = `
+    <img src="${dataUrl}" style="max-width:92vw; max-height:68vh; border-radius:16px; box-shadow:0 12px 32px rgba(0,0,0,0.5);">
+    <div style="display:flex; gap:10px;">
+      <button id="preview-download-btn" class="admin-btn">⬇️ 다운로드</button>
+      <button id="preview-close-btn" class="ghost-btn" style="background:#fff;">닫기</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  document.getElementById('preview-download-btn').addEventListener('click', ()=>{
+    const link = document.createElement('a');
+    link.download = 'bokpick-회식확정.png';
+    link.href = dataUrl;
+    link.click();
+  });
+  document.getElementById('preview-close-btn').addEventListener('click', ()=>{
+    overlay.remove();
+  });
+  overlay.addEventListener('click', (e)=>{
+    if(e.target === overlay) overlay.remove();
+  });
+}
+
 function fireConfetti(){
   if(typeof confetti !== 'function') return;
   confetti({ particleCount: 120, spread: 90, origin: { y: 0.6 }, colors: ['#F9D423','#111111','#FF4B3E','#FFFFFF'] });
@@ -1722,13 +1758,12 @@ function bindDoneEvents(doc){
     const el = document.getElementById('final-card-capture');
     if(!el || typeof html2canvas !== 'function') return;
     saveImgBtn.disabled = true; saveImgBtn.textContent = '만드는 중...';
+    el.classList.add('capturing');
     try{
       const canvas = await html2canvas(el, { backgroundColor: '#FBF8EF', scale: 2 });
-      const link = document.createElement('a');
-      link.download = 'bokpick-회식확정.png';
-      link.href = canvas.toDataURL('image/png');
-      link.click();
+      showImagePreview(canvas.toDataURL('image/png'));
     }catch(e){ console.error(e); }
+    el.classList.remove('capturing');
     saveImgBtn.disabled = false; saveImgBtn.textContent = '📸 이미지 저장';
   });
 
