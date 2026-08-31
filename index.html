@@ -425,6 +425,7 @@ let pollRef = null;
 let historyRef = null;
 let feedbackRef = null;
 let membersRef = null;
+let budgetRef = null;
 let teamsRef = firebaseReady ? db.collection('teams') : null;
 let teamId = null;
 let teamDoc = null;
@@ -432,6 +433,9 @@ let teamEntryLoaded = false;
 let unsubscribePoll = null;
 let unsubscribeMembers = null;
 let memberNames = [];
+let unsubscribeBudget = null;
+let budgetDoc = null;
+let budgetLoaded = false;
 
 function getTeamIdFromUrl(){
   const params = new URLSearchParams(window.location.search);
@@ -443,6 +447,7 @@ function setTeamRefs(id){
   historyRef = db.collection('teams').doc(id).collection('polls').doc('history');
   feedbackRef = db.collection('teams').doc(id).collection('polls').doc('feedback');
   membersRef = db.collection('teams').doc(id).collection('polls').doc('members');
+  budgetRef = db.collection('teams').doc(id).collection('polls').doc('budget');
 }
 function genTeamCode(){
   return Math.random().toString(36).slice(2,8).toUpperCase();
@@ -467,6 +472,41 @@ function attachMembersListener(){
   }, err=>{
     console.error('members listen error', err);
   });
+}
+function attachBudgetListener(){
+  if(unsubscribeBudget) unsubscribeBudget();
+  unsubscribeBudget = budgetRef.onSnapshot(snap=>{
+    budgetDoc = snap.exists ? snap.data() : { totalBudget: 0, expenses: [] };
+    budgetLoaded = true;
+    render();
+  }, err=>{
+    console.error('budget listen error', err);
+    budgetLoaded = true;
+  });
+}
+async function setBudgetTotal(amount){
+  await budgetRef.set({ totalBudget: amount, expenses: (budgetDoc && budgetDoc.expenses) || [] }, { merge: true });
+}
+async function addExpense(amount, memo){
+  await db.runTransaction(async (tx)=>{
+    const snap = await tx.get(budgetRef);
+    const data = snap.exists ? snap.data() : { totalBudget: 0, expenses: [] };
+    const expenses = (data.expenses || []).slice();
+    expenses.unshift({ amount, memo, createdAt: Date.now() });
+    tx.set(budgetRef, { totalBudget: data.totalBudget || 0, expenses });
+  });
+}
+async function deleteExpense(createdAt){
+  await db.runTransaction(async (tx)=>{
+    const snap = await tx.get(budgetRef);
+    if(!snap.exists) return;
+    const data = snap.data();
+    const expenses = (data.expenses || []).filter(e=>e.createdAt !== createdAt);
+    tx.set(budgetRef, { totalBudget: data.totalBudget || 0, expenses });
+  });
+}
+async function resetBudgetMonth(newTotal){
+  await budgetRef.set({ totalBudget: newTotal, expenses: [] });
 }
 async function addMember(name){
   await db.runTransaction(async (tx)=>{
@@ -605,6 +645,59 @@ function renderFortuneCard(){
   `;
 }
 
+function renderHomeStatusCard(){
+  if(!docLoaded) return '';
+  if(!currentDoc){
+    return `
+      <div class="card" style="text-align:center;">
+        <p class="empty-note" style="padding:4px 0 12px;">아직 진행중인 회식 투표가 없어요.</p>
+        <button class="admin-btn" id="home-status-btn">새 투표 만들기</button>
+      </div>
+    `;
+  }
+  if(currentDoc.stage==='done'){
+    const s = currentDoc.finalSummary || {};
+    const d = s.date ? fmtDate(s.date) : null;
+    const monthStr = s.date ? s.date.slice(0,7) : null;
+    return `
+      <div class="card">
+        <div class="step-label" style="font-size:15px;">✅ 이번 회식 확정</div>
+        ${monthStr ? renderMiniCalendar(monthStr, s.date) : `<div style="font-size:14px; margin-bottom:6px;"><b>날짜 미정</b></div>`}
+        <div style="font-size:14px; font-weight:700; text-align:center; margin:10px 0 4px;">${d ? `${d.md} (${d.dow}요일)` : ''}</div>
+        <div style="font-size:13.5px; color:var(--muted); margin-bottom:4px; text-align:center;">${(s.activities||[]).map(esc).join(', ')||'-'}${s.foods&&s.foods.length?` · ${s.foods.map(esc).join(', ')}`:''}</div>
+        ${s.restaurantName ? `<div style="font-size:13.5px; color:var(--muted); margin-bottom:4px; text-align:center;">📍 ${esc(s.restaurantName)}${s.time?` · 🕐 ${esc(s.time)}`:''}</div>` : ''}
+        <button class="ghost-btn" id="home-status-btn" style="margin-top:8px;">자세히 보기</button>
+      </div>
+    `;
+  }
+  const label = currentDoc.stage==='restaurant' ? '🍽 식당 투표 진행중' : '🗳️ 1차 투표 진행중';
+  return `
+    <div class="card">
+      <div class="step-label" style="font-size:15px;">${label}</div>
+      <p class="step-desc" style="margin-left:0;">아직 투표가 진행 중이에요. 참여해주세요!</p>
+      <button class="admin-btn" id="home-status-btn" style="margin-top:4px;">투표하러 가기</button>
+    </div>
+  `;
+}
+
+function renderBudgetSummaryCard(){
+  if(!budgetLoaded) return '';
+  const total = (budgetDoc && budgetDoc.totalBudget) || 0;
+  const spent = ((budgetDoc && budgetDoc.expenses) || []).reduce((s,e)=>s+e.amount,0);
+  const remain = total - spent;
+  const pct = total>0 ? Math.min(100, Math.round(spent/total*100)) : 0;
+  return `
+    <div class="card">
+      <div class="step-label" style="font-size:15px;">💰 이번 달 복후비</div>
+      ${total===0 ? `<p class="step-desc" style="margin-left:0;">아직 예산이 설정되지 않았어요.</p>` : `
+        <div class="progress-label" style="text-align:left; margin-bottom:4px;">남은 금액 <b style="color:var(--ink);">${remain.toLocaleString()}원</b> / 총 ${total.toLocaleString()}원</div>
+        <div class="progress-track"><div class="progress-fill" style="width:${pct}%; background:${remain<0?'var(--red)':'var(--ink)'};"></div></div>
+      `}
+      <button class="ghost-btn" id="budget-summary-manage-btn" style="margin-top:12px;">관리하기</button>
+    </div>
+  `;
+}
+
 function renderHome(){
   const today = new Date();
   const dateStr = `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일 (${DOW[today.getDay()]})`;
@@ -615,7 +708,9 @@ function renderHome(){
       <p class="sub" style="margin-top:8px; font-weight:700; font-size:14px;">${dateStr}</p>
     </div>
 
+    ${renderHomeStatusCard()}
     ${renderFortuneCard()}
+    ${renderBudgetSummaryCard()}
 
     <div class="home-nav-grid">
       <button class="home-nav-card" data-target="vote">
@@ -634,10 +729,20 @@ function renderHome(){
         <span class="home-nav-icon">📖</span>
         <span class="home-nav-label">지난 기록</span>
       </button>
+      <button class="home-nav-card" data-target="budget">
+        <span class="home-nav-icon">💰</span>
+        <span class="home-nav-label">복후비</span>
+      </button>
     </div>
   `;
 }
 function bindHomeEvents(){
+  const statusBtn = document.getElementById('home-status-btn');
+  if(statusBtn) statusBtn.addEventListener('click', ()=>{ currentView='vote'; render(); });
+
+  const budgetCardBtn = document.getElementById('budget-summary-manage-btn');
+  if(budgetCardBtn) budgetCardBtn.addEventListener('click', ()=>{ currentView='budget'; render(); });
+
   const fortuneBtn = document.getElementById('fortune-apply-btn');
   if(fortuneBtn) fortuneBtn.addEventListener('click', ()=>{
     const food = fortuneBtn.dataset.food;
@@ -971,6 +1076,12 @@ function render(){
     bindRouletteEvents();
     return;
   }
+  if(currentView==='budget'){
+    app.innerHTML = renderSiteHeader() + renderBudget();
+    bindSiteHeader();
+    bindBudgetEvents();
+    return;
+  }
   if(currentView==='home'){
     app.innerHTML = renderSiteHeader() + renderHome();
     bindSiteHeader();
@@ -1023,6 +1134,7 @@ function renderSiteHeader(){
     <div class="menu-panel ${menuOpen?'open':''}" id="menu-panel">
       <button class="menu-item" data-target="home">🏠 홈</button>
       <button class="menu-item" data-target="vote">🗳️ 투표하기</button>
+      <button class="menu-item" data-target="budget">💰 복후비</button>
       <button class="menu-item" data-target="history">📖 지난 회식 기록</button>
       <button class="menu-item" data-target="feedback">💬 피드백</button>
       <button class="menu-item" data-target="roulette">🎡 룰렛</button>
@@ -1154,11 +1266,30 @@ function enterTeam(code, data){
   setTeamRefs(code);
   attachPollListener();
   attachMembersListener();
+  attachBudgetListener();
 }
 
 /* ==================== 캘린더 렌더 ==================== */
 // mode: 'setup'  -> excludedSet 토글, weekdayOnly 시각 반영
 // mode: 'voting' -> allowedSet(후보일) 중에서만 selectedSet 토글
+function renderMiniCalendar(monthStr, highlightDate){
+  const dates = monthDates(monthStr);
+  const firstDow = new Date(monthStr+'-01T00:00:00').getDay();
+  let cells = '';
+  for(let i=0;i<firstDow;i++) cells += `<div class="cal-day blank"></div>`;
+  dates.forEach(({iso, day})=>{
+    const isHighlight = iso === highlightDate;
+    cells += `<div class="cal-day ${isHighlight?'selected':''}" style="cursor:default;">${day}</div>`;
+  });
+  return `
+    <div class="cal-head" style="margin-left:0;"><span class="cal-month">${monthStr.split('-')[0]}년 ${Number(monthStr.split('-')[1])}월</span></div>
+    <div class="cal-grid" style="margin-left:0;">
+      ${DOW.map(d=>`<div class="cal-dow">${d}</div>`).join('')}
+      ${cells}
+    </div>
+  `;
+}
+
 function renderCalendar(monthStr, opts){
   const { mode, excludedSet, weekdayOnly, allowedSet, selectedSet } = opts;
   const dates = monthDates(monthStr);
@@ -2097,6 +2228,130 @@ function bindRouletteEvents(){
   });
 }
 
+/* ==================== 복후비(예산) ==================== */
+let budgetEditingTotal = false;
+let budgetTotalInput = '';
+let expenseForm = { amount:'', memo:'' };
+let expenseDeleteConfirmId = null;
+
+function renderBudget(){
+  const total = (budgetDoc && budgetDoc.totalBudget) || 0;
+  const expenses = (budgetDoc && budgetDoc.expenses) || [];
+  const spent = expenses.reduce((s,e)=>s+e.amount,0);
+  const remain = total - spent;
+  const pct = total>0 ? Math.min(100, Math.round(spent/total*100)) : 0;
+
+  return `
+    ${heroBlock('이번 달 복후비를 관리해요')}
+
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">💰 총 예산</div>
+      ${budgetEditingTotal ? `
+        <div class="other-add-row">
+          <input type="number" id="budget-total-input" placeholder="예: 500000" value="${esc(budgetTotalInput)}">
+          <button id="budget-total-save-btn">저장</button>
+        </div>
+      ` : `
+        <div class="final-row" style="justify-content:flex-start; font-size:18px;"><b>${total.toLocaleString()}원</b></div>
+        <button class="ghost-btn" id="budget-total-edit-btn" style="margin-top:10px;">${total===0?'예산 설정하기':'예산 수정하기'}</button>
+      `}
+    </div>
+
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">📊 남은 금액</div>
+      <div class="progress-label" style="text-align:left; margin-bottom:4px;">${remain.toLocaleString()}원 남음 / 총 ${total.toLocaleString()}원</div>
+      <div class="progress-track"><div class="progress-fill" style="width:${pct}%; background:${remain<0?'var(--red)':'var(--ink)'};"></div></div>
+      <p class="hint">지금까지 쓴 금액: ${spent.toLocaleString()}원</p>
+    </div>
+
+    <div class="card">
+      <div class="step-label" style="font-size:16px;">➕ 지출 추가하기</div>
+      <div style="margin-left:0;">
+        <input type="number" id="expense-amount-input" placeholder="금액(원)" value="${esc(expenseForm.amount)}" style="margin-bottom:8px;">
+        <input type="text" id="expense-memo-input" placeholder="메모 (예: 9월 회식)" value="${esc(expenseForm.memo)}">
+      </div>
+      <div class="error-text" id="expense-error" style="display:none;"></div>
+      <button class="submit-btn" id="expense-add-btn">지출 추가</button>
+    </div>
+
+    <div class="divider-title"><span>지출 내역</span></div>
+    ${expenses.length===0 ? `<p class="empty-note">아직 기록된 지출이 없어요.</p>` :
+      expenses.map(e=>{
+        const isConfirming = expenseDeleteConfirmId === e.createdAt;
+        return `<div class="history-item">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+            <div>
+              <div class="h-date">${e.amount.toLocaleString()}원</div>
+              ${e.memo ? `<div class="h-meta">${esc(e.memo)}</div>` : ''}
+            </div>
+            ${isConfirming ? `
+              <div style="display:flex; gap:4px; flex-shrink:0;">
+                <button class="ghost-btn" data-cancel-exp="${e.createdAt}" style="padding:5px 9px; font-size:11px;">취소</button>
+                <button class="ghost-btn" data-confirm-exp="${e.createdAt}" style="padding:5px 9px; font-size:11px; border-color:var(--red); color:var(--red);">삭제확정</button>
+              </div>
+            ` : `<button class="ghost-btn" data-del-exp="${e.createdAt}" style="padding:5px 9px; font-size:12px; flex-shrink:0;">🗑</button>`}
+          </div>
+        </div>`;
+      }).join('')}
+  `;
+}
+
+function bindBudgetEvents(){
+  const editBtn = document.getElementById('budget-total-edit-btn');
+  if(editBtn) editBtn.addEventListener('click', ()=>{
+    budgetTotalInput = String((budgetDoc && budgetDoc.totalBudget) || '');
+    budgetEditingTotal = true;
+    render();
+  });
+  const totalInput = document.getElementById('budget-total-input');
+  if(totalInput) totalInput.addEventListener('input', e=> budgetTotalInput = e.target.value );
+  const saveBtn = document.getElementById('budget-total-save-btn');
+  if(saveBtn) saveBtn.addEventListener('click', async ()=>{
+    const val = Math.max(0, parseInt(budgetTotalInput)||0);
+    saveBtn.disabled = true; saveBtn.textContent='저장 중...';
+    try{ await setBudgetTotal(val); budgetEditingTotal=false; }
+    catch(e){ console.error(e); }
+    saveBtn.disabled = false; saveBtn.textContent='저장';
+    render();
+  });
+
+  document.getElementById('expense-amount-input').addEventListener('input', e=> expenseForm.amount = e.target.value );
+  document.getElementById('expense-memo-input').addEventListener('input', e=> expenseForm.memo = e.target.value );
+  document.getElementById('expense-add-btn').addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    const errEl = document.getElementById('expense-error');
+    const amount = parseInt(expenseForm.amount);
+    if(!amount || amount<=0){ errEl.textContent='금액을 정확히 입력해주세요.'; errEl.style.display='block'; return; }
+    errEl.style.display='none';
+    btn.disabled=true; btn.textContent='추가 중...';
+    try{
+      await addExpense(amount, expenseForm.memo.trim());
+      expenseForm = { amount:'', memo:'' };
+    }catch(e){
+      console.error(e);
+      errEl.textContent='추가에 실패했어요.'; errEl.style.display='block';
+    }
+    btn.disabled=false; btn.textContent='지출 추가';
+    render();
+  });
+
+  document.querySelectorAll('[data-del-exp]').forEach(el=>{
+    el.addEventListener('click', ()=>{ expenseDeleteConfirmId = parseInt(el.dataset.delExp); render(); });
+  });
+  document.querySelectorAll('[data-cancel-exp]').forEach(el=>{
+    el.addEventListener('click', ()=>{ expenseDeleteConfirmId = null; render(); });
+  });
+  document.querySelectorAll('[data-confirm-exp]').forEach(el=>{
+    el.addEventListener('click', async (ev)=>{
+      const createdAt = parseInt(ev.currentTarget.dataset.confirmExp);
+      ev.currentTarget.disabled = true;
+      try{ await deleteExpense(createdAt); }catch(e){ console.error(e); }
+      expenseDeleteConfirmId = null;
+      render();
+    });
+  });
+}
+
 /* ==================== 시작 ==================== */
 async function bootstrap(){
   if(!firebaseReady){ render(); return; }
@@ -2110,6 +2365,7 @@ async function bootstrap(){
         setTeamRefs(urlTeamId);
         attachPollListener();
         attachMembersListener();
+  attachBudgetListener();
       }
       // 존재하지 않는 코드면 teamId를 null로 두어 입장 화면을 보여줌
     }catch(e){
