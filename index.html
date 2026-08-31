@@ -162,8 +162,9 @@
   .hamburger-icon{ font-size:18px; display:inline-block; line-height:1; }
   .menu-toggle:hover{ background:rgba(249,212,35,0.15); }
   .site-header-brand{
+    position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
     font-family:'Baloo 2', sans-serif; font-weight:800; font-size:19px; color:var(--yellow);
-    cursor:pointer; letter-spacing:.5px;
+    cursor:pointer; letter-spacing:.5px; white-space:nowrap;
   }
   .menu-panel{
     position:absolute; top:100%; left:0;
@@ -858,13 +859,9 @@ function renderCheckInCard(){
   const already = myProfile.lastCheckIn === today;
   return `
     <div class="card" style="text-align:center;">
-      <div style="display:flex; justify-content:center; align-items:center; gap:14px; margin-bottom:12px;">
-        ${renderCharacterPreview(myProfile, 64)}
-        <div style="text-align:left;">
-          <div class="step-label" style="font-size:15px; margin-bottom:2px;">📅 출석체크</div>
-          <div style="font-size:13px; color:var(--muted);">보유 포인트 <b style="color:var(--ink);">${(myProfile.points||0).toLocaleString()}P</b></div>
-        </div>
-      </div>
+      ${renderCharacterPreview(myProfile, 64)}
+      <div class="step-label" style="justify-content:center; font-size:15px; margin:8px 0 2px;">📅 출석체크</div>
+      <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">보유 포인트 <b style="color:var(--ink);">${(myProfile.points||0).toLocaleString()}P</b></div>
       ${already
         ? `<button class="ghost-btn" disabled>오늘은 이미 출석했어요 ✅</button>`
         : `<button class="admin-btn" id="checkin-btn">오늘 출석체크하고 +50P 받기</button>`
@@ -1070,19 +1067,25 @@ async function loadGlobalFeedback(){
   render();
 }
 
-async function loadMyProfile(){
+async function loadMyProfile(retries){
+  if(retries===undefined) retries = 2;
   try{
     const snap = await userProfilesRef.doc(authUser.uid).get();
     myProfile = snap.exists ? Object.assign({species:'cat', color:'black', points:0, lastCheckIn:null}, snap.data()) : {species:'cat', color:'black', points:200, lastCheckIn:null};
     if(!snap.exists){ await saveMyProfile(); } // 프로필이 없던 계정(예전 계정)은 이번에 기본값으로 생성 + 200P 지급
+    myProfileLoaded = true;
   }catch(e){
-    console.error(e);
+    console.error('프로필 로드 실패', e);
+    if(retries>0){
+      setTimeout(()=>loadMyProfile(retries-1), 700);
+      return; // 재시도 중에는 아직 '불러옴' 표시 안 함
+    }
+    myProfileLoaded = true; // 재시도 다 실패하면 그냥 현재 상태로 표시
   }
-  myProfileLoaded = true;
   render();
 }
 async function saveMyProfile(){
-  await userProfilesRef.doc(authUser.uid).set(myProfile);
+  await userProfilesRef.doc(authUser.uid).set(myProfile, { merge:true });
 }
 async function dailyCheckIn(){
   const today = new Date().toISOString().slice(0,10);
@@ -2795,8 +2798,15 @@ function renderMyPage(){
     <div class="card" style="text-align:center;">
       <div class="step-label" style="justify-content:center; font-size:16px;">🐱 내 캐릭터</div>
       ${myProfileLoaded ? renderCharacterPreview(myProfile, 130) : ''}
-      <button class="admin-btn" id="mypage-customize-btn" style="margin-top:12px;">캐릭터 꾸미러 가기</button>
+      <p style="font-size:13.5px; color:var(--muted); margin-top:6px;">보유 포인트 ${(myProfile.points||0).toLocaleString()}P</p>
+      <button class="admin-btn" id="mypage-customize-btn" style="margin-top:8px;">캐릭터 꾸미러 가기</button>
     </div>
+    ${isAdmin() ? `
+    <div class="card">
+      <div class="step-label" style="font-size:15px;">🔧 관리자 테스트 도구</div>
+      <p class="step-desc" style="margin-left:0;">테스트용으로 내 포인트를 채워요</p>
+      <button class="ghost-btn" id="mypage-add-points-btn">포인트 1,000,000P 충전</button>
+    </div>` : ''}
     <div class="card">
       <div class="step-label" style="font-size:16px;">👤 내 정보</div>
       <div class="final-row" style="justify-content:flex-start; color:var(--ink);"><span>이름</span><b style="color:var(--ink);">${esc(authUser.displayName||'-')}</b></div>
@@ -2817,6 +2827,16 @@ function renderMyPage(){
 function bindMyPageEvents(){
   const customizeBtn = document.getElementById('mypage-customize-btn');
   if(customizeBtn) customizeBtn.addEventListener('click', ()=>{ currentView='customize'; render(); });
+
+  const addPointsBtn = document.getElementById('mypage-add-points-btn');
+  if(addPointsBtn) addPointsBtn.addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    btn.disabled = true; btn.textContent = '충전 중...';
+    myProfile.points = 1000000;
+    try{ await saveMyProfile(); }catch(e){ console.error(e); }
+    render();
+  });
+
   document.getElementById('mypage-change-pw-btn').addEventListener('click', ()=>{ currentView='change-password'; render(); });
   document.getElementById('mypage-copy-link-btn').addEventListener('click', (ev)=>{
     const btn = ev.currentTarget;
