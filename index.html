@@ -157,8 +157,9 @@
     background:none; border:1.5px solid var(--yellow); color:var(--yellow);
     padding:7px 11px; border-radius:8px; font-size:11.5px; font-weight:800; cursor:pointer; font-family:inherit;
     white-space:nowrap;
+    display:inline-flex; align-items:center; justify-content:center; gap:4px; line-height:1;
   }
-  .hamburger-icon{ font-size:18px; vertical-align:-3px; display:inline-block; margin-right:2px; }
+  .hamburger-icon{ font-size:18px; display:inline-block; line-height:1; }
   .menu-toggle:hover{ background:rgba(249,212,35,0.15); }
   .site-header-brand{
     font-family:'Baloo 2', sans-serif; font-weight:800; font-size:19px; color:var(--yellow);
@@ -447,7 +448,7 @@ let teamsRef = firebaseReady ? db.collection('teams') : null;
 let orgDivisionsRef = firebaseReady ? db.collection('orgDivisions') : null;
 let globalFeedbackRef = firebaseReady ? db.collection('globalFeedback') : null;
 let userProfilesRef = firebaseReady ? db.collection('userProfiles') : null;
-let myProfile = { species:'cat', color:'black' };
+let myProfile = { species:'cat', color:'black', points:0, lastCheckIn:null };
 let myProfileLoaded = false;
 let orgDivisions = [];
 let orgDivisionsLoaded = false;
@@ -548,6 +549,7 @@ async function adminCreateAccount(name, username, password, targetTeamId, target
   await cred.user.updateProfile({ displayName: name });
   const uid = cred.user.uid;
   await db.collection('userTeams').doc(uid).set({ teamId: targetTeamId, teamName: targetTeamName || '' });
+  await userProfilesRef.doc(uid).set({ species:'cat', color:'black', points:200, lastCheckIn:null });
   await secAuth.signOut();
   return uid;
 }
@@ -781,7 +783,8 @@ function getDailyFortune(){
 function renderFortuneInline(){
   const f = getDailyFortune();
   return `
-    <p class="sub" style="margin-top:6px;">🔮 ${esc(f.message)}${f.food ? ` <span style="font-weight:800;">(추천메뉴: ${esc(f.food)})</span>` : ''}</p>
+    <p class="sub" style="margin-top:10px; font-weight:800; font-size:13px; letter-spacing:0.5px;">🔮 오늘의 운세</p>
+    <p class="sub" style="margin-top:2px;">${esc(f.message)}${f.food ? ` <span style="font-weight:800;">(추천메뉴: ${esc(f.food)})</span>` : ''}</p>
   `;
 }
 
@@ -849,6 +852,27 @@ function renderBudgetSummaryCard(){
   `;
 }
 
+function renderCheckInCard(){
+  if(!myProfileLoaded) return '';
+  const today = new Date().toISOString().slice(0,10);
+  const already = myProfile.lastCheckIn === today;
+  return `
+    <div class="card" style="text-align:center;">
+      <div style="display:flex; justify-content:center; align-items:center; gap:14px; margin-bottom:12px;">
+        ${renderCharacterPreview(myProfile, 64)}
+        <div style="text-align:left;">
+          <div class="step-label" style="font-size:15px; margin-bottom:2px;">📅 출석체크</div>
+          <div style="font-size:13px; color:var(--muted);">보유 포인트 <b style="color:var(--ink);">${(myProfile.points||0).toLocaleString()}P</b></div>
+        </div>
+      </div>
+      ${already
+        ? `<button class="ghost-btn" disabled>오늘은 이미 출석했어요 ✅</button>`
+        : `<button class="admin-btn" id="checkin-btn">오늘 출석체크하고 +50P 받기</button>`
+      }
+    </div>
+  `;
+}
+
 function renderHome(){
   const today = new Date();
   const dateStr = `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일 (${DOW[today.getDay()]})`;
@@ -856,10 +880,11 @@ function renderHome(){
     <div class="hero">
       <div class="hero-badge">복후비<br>다 쓰는<br>그 날까지</div>
       <div class="hero-top"><img class="logo-img" id="logo-home-btn-hero" src="${BOKPICK_LOGO_SRC}" alt="BOKPICK" title="메인 화면으로"></div>
-      <p class="sub" style="margin-top:8px; font-weight:700; font-size:14px;">${dateStr}</p>
+      <p class="sub" style="margin-top:8px; font-weight:700; font-size:17px;">${dateStr}</p>
       ${renderFortuneInline()}
     </div>
 
+    ${renderCheckInCard()}
     ${renderHomeStatusCard()}
     ${renderBudgetSummaryCard()}
 
@@ -892,6 +917,14 @@ function renderHome(){
   `;
 }
 function bindHomeEvents(){
+  const checkinBtn = document.getElementById('checkin-btn');
+  if(checkinBtn) checkinBtn.addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    btn.disabled = true; btn.textContent = '처리 중...';
+    try{ await dailyCheckIn(); }catch(e){ console.error(e); }
+    render();
+  });
+
   const claimBtn = document.getElementById('claim-admin-btn');
   if(claimBtn) claimBtn.addEventListener('click', async ()=>{
     claimBtn.disabled = true; claimBtn.textContent = '처리 중...';
@@ -1040,7 +1073,8 @@ async function loadGlobalFeedback(){
 async function loadMyProfile(){
   try{
     const snap = await userProfilesRef.doc(authUser.uid).get();
-    myProfile = snap.exists ? Object.assign({species:'cat', color:'black'}, snap.data()) : {species:'cat', color:'black'};
+    myProfile = snap.exists ? Object.assign({species:'cat', color:'black', points:0, lastCheckIn:null}, snap.data()) : {species:'cat', color:'black', points:200, lastCheckIn:null};
+    if(!snap.exists){ await saveMyProfile(); } // 프로필이 없던 계정(예전 계정)은 이번에 기본값으로 생성 + 200P 지급
   }catch(e){
     console.error(e);
   }
@@ -1049,6 +1083,14 @@ async function loadMyProfile(){
 }
 async function saveMyProfile(){
   await userProfilesRef.doc(authUser.uid).set(myProfile);
+}
+async function dailyCheckIn(){
+  const today = new Date().toISOString().slice(0,10);
+  if(myProfile.lastCheckIn === today) return false;
+  myProfile.points = (myProfile.points||0) + 50;
+  myProfile.lastCheckIn = today;
+  await saveMyProfile();
+  return true;
 }
 
 async function createPoll(cfg){
@@ -1113,14 +1155,14 @@ async function addRestaurantOption(name, note){
   });
 }
 
-async function saveRestoVote(name, optionId, prevName){
+async function saveRestoVote(name, optionId, character, prevName){
   await db.runTransaction(async (tx)=>{
     const snap = await tx.get(pollRef);
     if(!snap.exists) return;
     const data = snap.data();
     const votes = Object.assign({}, (data.restaurant && data.restaurant.votes) || {});
     if(prevName && prevName!==name) delete votes[prevName];
-    votes[name] = optionId;
+    votes[name] = { optionId, character };
     const restaurant = Object.assign({}, data.restaurant, { votes });
     tx.update(pollRef, { restaurant });
   });
@@ -1213,7 +1255,7 @@ function computeRestoResults(data){
   const total = Object.keys(votes).length;
   const counts = {};
   options.forEach(o=>counts[o.id]=0);
-  Object.values(votes).forEach(optId=>{ if(counts[optId]!==undefined) counts[optId]++; });
+  Object.values(votes).forEach(v=>{ const optId = (v && typeof v==='object') ? v.optionId : v; if(counts[optId]!==undefined) counts[optId]++; });
   const max = Math.max(0, ...Object.values(counts));
   const winnerId = options.find(o=>counts[o.id]>0 && counts[o.id]===max);
   return { total, counts, winnerId: winnerId ? winnerId.id : null };
@@ -1376,7 +1418,7 @@ function renderSiteHeader(){
     <div class="nav-wrap">
       <div class="site-header">
         <div class="menu-hover-zone">
-          <button class="menu-toggle" id="menu-toggle-btn"><span class="hamburger-icon">☰</span> MENU</button>
+          <button class="menu-toggle" id="menu-toggle-btn"><span class="hamburger-icon">☰</span><span>MENU</span></button>
           <div class="menu-panel ${menuOpen?'open':''}" id="menu-panel">
             <button class="menu-item" data-target="home">🏠 홈</button>
             <button class="menu-item" data-target="vote">🗳️ 투표하기</button>
@@ -1468,6 +1510,9 @@ function resetTeamState(){
   memberNames = [];
   budgetDoc = null;
   budgetLoaded = false;
+  myProfile = { species:'cat', color:'black', points:0, lastCheckIn:null };
+  myProfileLoaded = false;
+  customizeDraft = null;
   const url = new URL(window.location.href);
   url.searchParams.delete('team');
   window.history.replaceState(null, '', url.toString());
@@ -1881,7 +1926,7 @@ function renderVoting(doc){
     <div class="card">
       <div class="step-label" style="font-size:16px;">🙋 투표한 사람 (${res.total}명)</div>
       <div class="voter-list">
-        ${Object.keys(doc.votes||{}).map(n=>`<span class="voter-tag">${esc(n)} ${(authUser && n===(authUser.displayName||authUser.email))?`<button data-name="${esc(n)}" class="edit-vote">수정</button>`:''}</span>`).join('')}
+        ${Object.entries(doc.votes||{}).map(([n,v])=>`<span class="voter-tag">${renderMiniCharacter(v.character)}${esc(n)} ${(authUser && n===(authUser.displayName||authUser.email))?`<button data-name="${esc(n)}" class="edit-vote">수정</button>`:''}</span>`).join('')}
       </div>
     </div>
     <div class="card">
@@ -1968,7 +2013,8 @@ function bindVotingEvents(doc){
     const voteData = {
       activities: Array.from(voteForm.activities), activityNotes: voteForm.activityNotes.slice(),
       foods: Array.from(voteForm.foods), foodNotes: voteForm.foodNotes.slice(),
-      dates: Array.from(voteForm.dates)
+      dates: Array.from(voteForm.dates),
+      character: { species: myProfile.species||'cat', color: myProfile.color||'black' }
     };
     try{
       await saveVote(name, voteData, editingName);
@@ -2116,7 +2162,7 @@ function renderRestaurant(doc){
     <div class="card">
       <div class="step-label" style="font-size:16px;">🙋 식당 투표한 사람 (${restoRes.total}명)</div>
       <div class="voter-list">
-        ${Object.keys(votes).map(n=>`<span class="voter-tag">${esc(n)} ${(authUser && n===(authUser.displayName||authUser.email))?`<button data-name="${esc(n)}" class="edit-resto-vote">수정</button>`:''}</span>`).join('')}
+        ${Object.entries(votes).map(([n,v])=>`<span class="voter-tag">${renderMiniCharacter(v && typeof v==='object' ? v.character : null)}${esc(n)} ${(authUser && n===(authUser.displayName||authUser.email))?`<button data-name="${esc(n)}" class="edit-resto-vote">수정</button>`:''}</span>`).join('')}
       </div>
     </div>` : ''}
 
@@ -2198,7 +2244,7 @@ function bindRestaurantEvents(doc){
     errEl.style.display='none';
     btn.disabled=true; btn.textContent='저장 중...';
     try{
-      await saveRestoVote(name, restaurantForm.selectedOptionId, editingRestoVoter);
+      await saveRestoVote(name, restaurantForm.selectedOptionId, { species: myProfile.species||'cat', color: myProfile.color||'black' }, editingRestoVoter);
       editingRestoVoter=null;
       restaurantForm = { name:'', newOptionName:'', newOptionNote:'', selectedOptionId:null };
     }catch(e){
@@ -2212,7 +2258,9 @@ function bindRestaurantEvents(doc){
     btn.addEventListener('click', ()=>{
       const n = btn.dataset.name;
       editingRestoVoter = n;
-      restaurantForm = { name:n, newOptionName:'', newOptionNote:'', selectedOptionId: doc.restaurant.votes[n] || null };
+      const existingVote = doc.restaurant.votes[n];
+      const existingOptionId = existingVote && typeof existingVote==='object' ? existingVote.optionId : existingVote;
+      restaurantForm = { name:n, newOptionName:'', newOptionNote:'', selectedOptionId: existingOptionId || null };
       render();
       window.scrollTo({top:0, behavior:'smooth'});
     });
@@ -2667,38 +2715,77 @@ function renderCharacterPreview(profile, size){
     </div>
   `;
 }
+function renderMiniCharacter(character){
+  const c = character || { species:'cat', color:'black' };
+  const sp = SPECIES_DATA[c.species] || SPECIES_DATA.cat;
+  const src = sp.colors[c.color] || sp.colors.black;
+  const h = Math.round(20/sp.ratio);
+  return `<img src="${src}" style="width:20px; height:${h}px; vertical-align:middle; margin-right:4px; border-radius:4px;">`;
+}
+
+let customizeError = '';
+let customizeDraft = null;
 
 function renderCustomize(){
+  if(!customizeDraft) customizeDraft = { species: myProfile.species, color: myProfile.color };
+  const speciesChanged = customizeDraft.species !== myProfile.species;
+  const colorChanged = customizeDraft.color !== myProfile.color;
+  const cost = (speciesChanged?200:0) + (colorChanged?200:0);
   return `
     ${heroBlock('내 캐릭터를 꾸며봐요')}
     <div class="card" style="text-align:center;">
       <div class="step-label" style="justify-content:center; font-size:16px;">🎨 미리보기</div>
-      ${renderCharacterPreview(myProfile, 200)}
+      ${renderCharacterPreview(customizeDraft, 200)}
+      <p style="font-size:14px; font-weight:800; margin-top:10px;">보유 포인트: ${(myProfile.points||0).toLocaleString()}P</p>
     </div>
     <div class="card">
-      <div class="step-label" style="font-size:15px;">캐릭터 종류</div>
+      <div class="step-label" style="font-size:15px;">캐릭터 종류 <span style="font-weight:400; color:var(--muted); font-size:12px;">(변경 시 200P)</span></div>
       <div class="option-grid" style="margin-left:0;">
-        ${Object.entries(SPECIES_DATA).map(([key,s])=>`<div class="option-pill customize-pill ${myProfile.species===key?'selected':''}" data-cat="species" data-val="${key}">${esc(s.label)}</div>`).join('')}
+        ${Object.entries(SPECIES_DATA).map(([key,s])=>`<div class="option-pill customize-pill ${customizeDraft.species===key?'selected':''}" data-cat="species" data-val="${key}">${esc(s.label)}</div>`).join('')}
       </div>
     </div>
     <div class="card">
-      <div class="step-label" style="font-size:15px;">색상</div>
+      <div class="step-label" style="font-size:15px;">색상 <span style="font-weight:400; color:var(--muted); font-size:12px;">(변경 시 200P)</span></div>
       <div class="option-grid" style="margin-left:0;">
-        ${Object.entries(CHAR_COLOR_LABELS).map(([key,label])=>`<div class="option-pill customize-pill ${myProfile.color===key?'selected':''}" data-cat="color" data-val="${key}">${esc(label)}</div>`).join('')}
+        ${Object.entries(CHAR_COLOR_LABELS).map(([key,label])=>`<div class="option-pill customize-pill ${customizeDraft.color===key?'selected':''}" data-cat="color" data-val="${key}">${esc(label)}</div>`).join('')}
       </div>
     </div>
-    <p class="hint" style="text-align:center;">선택하면 바로 저장돼요. 모자·안경 등 액세서리는 캐릭터별로 위치를 다시 맞춘 뒤 곧 추가할게요!</p>
+    ${cost>0 ? `<p class="hint" style="text-align:center; font-weight:700; color:var(--ink);">변경 비용: ${cost}P</p>` : ''}
+    ${customizeError ? `<div class="error-text" style="text-align:center;">${esc(customizeError)}</div>` : ''}
+    <button class="submit-btn" id="customize-save-btn" ${cost===0?'disabled':''}>저장하기${cost>0?` (${cost}P)`:''}</button>
+    <p class="hint" style="text-align:center; margin-top:14px;">모자·안경 등 액세서리는 캐릭터별로 위치를 다시 맞춘 뒤 곧 추가할게요!</p>
   `;
 }
 function bindCustomizeEvents(){
   document.querySelectorAll('.customize-pill').forEach(el=>{
-    el.addEventListener('click', async ()=>{
+    el.addEventListener('click', ()=>{
       const cat = el.dataset.cat;
       const val = el.dataset.val;
-      myProfile[cat] = val || null;
+      customizeDraft[cat] = val;
+      customizeError = '';
       render();
-      try{ await saveMyProfile(); }catch(e){ console.error(e); }
     });
+  });
+
+  const saveBtn = document.getElementById('customize-save-btn');
+  if(saveBtn) saveBtn.addEventListener('click', async ()=>{
+    const speciesChanged = customizeDraft.species !== myProfile.species;
+    const colorChanged = customizeDraft.color !== myProfile.color;
+    const cost = (speciesChanged?200:0) + (colorChanged?200:0);
+    if(cost===0) return;
+    if((myProfile.points||0) < cost){
+      customizeError = `포인트가 부족해요 (${cost}P 필요, 현재 ${myProfile.points||0}P)`;
+      render();
+      return;
+    }
+    saveBtn.disabled = true; saveBtn.textContent = '저장 중...';
+    myProfile.points = (myProfile.points||0) - cost;
+    myProfile.species = customizeDraft.species;
+    myProfile.color = customizeDraft.color;
+    try{ await saveMyProfile(); }catch(e){ console.error(e); }
+    customizeDraft = null;
+    customizeError = '';
+    render();
   });
 }
 
@@ -3118,6 +3205,7 @@ async function bootstrap(){
     authLoaded = true;
     if(user){
       await resolveTeamForUser();
+      loadMyProfile();
     }
     render();
   });
