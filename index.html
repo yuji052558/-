@@ -173,6 +173,16 @@
   .menu-item:hover{ background:var(--sky); }
   .menu-team-info{ padding:10px 16px; font-size:11.5px; color:var(--muted); }
 
+  /* ---------- HOME NAV ---------- */
+  .home-nav-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-bottom:18px; }
+  .home-nav-card{
+    background:var(--white); border:2.5px solid var(--ink); border-radius:16px;
+    padding:24px 10px; display:flex; flex-direction:column; align-items:center; gap:8px;
+    cursor:pointer; font-family:'Noto Sans KR',sans-serif; font-weight:800; font-size:14px; color:var(--ink);
+  }
+  .home-nav-card:hover{ background:var(--sky); }
+  .home-nav-icon{ font-size:34px; }
+
   /* ---------- CARDS / FORM ---------- */
   .card{
     background: var(--white);
@@ -471,11 +481,9 @@ async function addMember(name){
 let currentDoc = null;
 let docLoaded = false;
 let historyItems = null; // null = 아직 로드 안 함
-let showHistory = false;
-let showFeedback = false;
+let currentView = 'home';
 let feedbackItems = null;
 let feedbackForm = { name:'', message:'' };
-let showRoulette = false;
 let menuOpen = false;
 let historyDeleteConfirmId = null;
 let rouletteNames = [];
@@ -559,6 +567,99 @@ function fmtDate(iso){
 
 // 가양역(회사 위치) 근처 추천 맛집 - 수동 큐레이션 스냅샷 (실시간 API 아님, 필요시 갱신)
 const GAYANG_COORDS = { lat: 37.5613, lng: 126.8547 };
+
+// 오늘의 복운세 - 날짜 기준으로 매일 하나씩 고정, 메뉴 추천 포함
+const FORTUNES = [
+  { message: '오늘은 얼큰한 게 땡기는 날이에요 🌶️', food: '한식' },
+  { message: '뜨끈한 국물 한 그릇이면 다 풀려요', food: '한식' },
+  { message: '느끼한 게 당기는 하루! 짜장면 어때요?', food: '중식' },
+  { message: '불맛 나는 볶음 요리가 생각나는 날', food: '중식' },
+  { message: '정갈하고 깔끔한 하루, 초밥 한 점 어떠세요?', food: '일식' },
+  { message: '바삭한 튀김이 당기는 컨디션이네요', food: '일식' },
+  { message: '오늘은 나에게 스테이크를 선물하세요 🥩', food: '양식' },
+  { message: '파스타 한 접시로 기분 전환 하는 날', food: '양식' },
+  { message: '색다른 게 필요한 날! 오늘은 모험을 떠나보세요', food: '기타' },
+  { message: '평소 안 먹던 메뉴에 운이 따르는 날이에요', food: '기타' },
+  { message: '매콤달콤한 게 필요해요, 오늘의 컨디션엔 이게 딱', food: '한식' },
+  { message: '든든하게 먹어야 하는 날, 양 많은 메뉴 추천!', food: '중식' },
+];
+function getDailyFortune(){
+  const today = new Date();
+  const dateStr = `${today.getFullYear()}-${today.getMonth()+1}-${today.getDate()}`;
+  let hash = 0;
+  for(let i=0;i<dateStr.length;i++){ hash = (hash*31 + dateStr.charCodeAt(i)) >>> 0; }
+  const idx = hash % FORTUNES.length;
+  return FORTUNES[idx];
+}
+function renderFortuneCard(){
+  const f = getDailyFortune();
+  return `
+    <div class="card" style="text-align:center;">
+      <div class="step-label" style="justify-content:center; font-size:15px;">🔮 오늘의 복운세</div>
+      <p style="font-size:14px; margin:6px 0 12px;">${esc(f.message)}</p>
+      <div class="other-chip" style="display:inline-flex; background:var(--sky); border-color:var(--ink);">추천 메뉴 <b>${esc(f.food)}</b></div>
+      <div style="margin-top:12px;">
+        <button class="ghost-btn" id="fortune-apply-btn" data-food="${esc(f.food)}">이 메뉴로 투표하러 가기</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderHome(){
+  const today = new Date();
+  const dateStr = `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일 (${DOW[today.getDay()]})`;
+  return `
+    <div class="hero">
+      <div class="hero-badge">복후비<br>다 쓰는<br>그 날까지</div>
+      <div class="hero-top"><img class="logo-img" id="logo-home-btn-hero" src="${BOKPICK_LOGO_SRC}" alt="BOKPICK" title="메인 화면으로"></div>
+      <p class="sub" style="margin-top:8px; font-weight:700; font-size:14px;">${dateStr}</p>
+    </div>
+
+    ${renderFortuneCard()}
+
+    <div class="home-nav-grid">
+      <button class="home-nav-card" data-target="vote">
+        <span class="home-nav-icon">🗳️</span>
+        <span class="home-nav-label">투표하기</span>
+      </button>
+      <button class="home-nav-card" data-target="roulette">
+        <span class="home-nav-icon">🎡</span>
+        <span class="home-nav-label">룰렛</span>
+      </button>
+      <button class="home-nav-card" data-target="feedback">
+        <span class="home-nav-icon">💬</span>
+        <span class="home-nav-label">피드백</span>
+      </button>
+      <button class="home-nav-card" data-target="history">
+        <span class="home-nav-icon">📖</span>
+        <span class="home-nav-label">지난 기록</span>
+      </button>
+    </div>
+  `;
+}
+function bindHomeEvents(){
+  const fortuneBtn = document.getElementById('fortune-apply-btn');
+  if(fortuneBtn) fortuneBtn.addEventListener('click', ()=>{
+    const food = fortuneBtn.dataset.food;
+    if(!voteForm.activities.has('점심회식') && !voteForm.activities.has('저녁회식')){
+      voteForm.activities.add('저녁회식');
+    }
+    voteForm.foods.add(food);
+    currentView = 'vote';
+    render();
+  });
+
+  document.querySelectorAll('.home-nav-card[data-target]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const t = el.dataset.target;
+      currentView = t;
+      if(t==='history') historyItems = null;
+      if(t==='feedback') feedbackItems = null;
+      render();
+    });
+  });
+}
+
 const GAYANG_RECS = {
   '한식': [
     { name:'낙원', desc:'가족·단체 모임 좋은 정갈한 한식당' },
@@ -850,26 +951,33 @@ function render(){
     return;
   }
 
-  if(showHistory){
+  if(currentView==='history'){
     if(historyItems===null){ app.innerHTML = renderSiteHeader() + `<div class="loading">기록 불러오는 중...</div>`; bindSiteHeader(); loadHistory(); return; }
     app.innerHTML = renderSiteHeader() + renderHistory();
     bindSiteHeader();
     bindHistoryEvents();
     return;
   }
-  if(showFeedback){
+  if(currentView==='feedback'){
     if(feedbackItems===null){ app.innerHTML = renderSiteHeader() + `<div class="loading">불러오는 중...</div>`; bindSiteHeader(); loadFeedback(); return; }
     app.innerHTML = renderSiteHeader() + renderFeedback();
     bindSiteHeader();
     bindFeedbackEvents();
     return;
   }
-  if(showRoulette){
+  if(currentView==='roulette'){
     app.innerHTML = renderSiteHeader() + renderRoulette();
     bindSiteHeader();
     bindRouletteEvents();
     return;
   }
+  if(currentView==='home'){
+    app.innerHTML = renderSiteHeader() + renderHome();
+    bindSiteHeader();
+    bindHomeEvents();
+    return;
+  }
+  // currentView === 'vote'
   if(!docLoaded){ app.innerHTML = renderSiteHeader() + `<div class="loading">불러오는 중...</div>`; bindSiteHeader(); return; }
   if(!currentDoc){
     app.innerHTML = renderSiteHeader() + renderSetup();
@@ -913,7 +1021,8 @@ function renderSiteHeader(){
       <button class="menu-toggle" id="header-copy-btn">🔗 LINK</button>
     </div>
     <div class="menu-panel ${menuOpen?'open':''}" id="menu-panel">
-      <button class="menu-item" data-target="home">🏠 메인(투표)</button>
+      <button class="menu-item" data-target="home">🏠 홈</button>
+      <button class="menu-item" data-target="vote">🗳️ 투표하기</button>
       <button class="menu-item" data-target="history">📖 지난 회식 기록</button>
       <button class="menu-item" data-target="feedback">💬 피드백</button>
       <button class="menu-item" data-target="roulette">🎡 룰렛</button>
@@ -923,9 +1032,7 @@ function renderSiteHeader(){
 }
 
 function goHome(){
-  showHistory = false;
-  showFeedback = false;
-  showRoulette = false;
+  currentView = 'home';
   menuOpen = false;
   render();
 }
@@ -952,9 +1059,7 @@ function bindSiteHeader(){
   document.querySelectorAll('.menu-item[data-target]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const t = el.dataset.target;
-      showHistory = (t==='history');
-      showFeedback = (t==='feedback');
-      showRoulette = (t==='roulette');
+      currentView = t;
       menuOpen = false;
       if(t==='history') historyItems = null;
       if(t==='feedback') feedbackItems = null;
@@ -1863,7 +1968,7 @@ function renderFeedback(){
   `;
 }
 function bindFeedbackEvents(){
-  document.getElementById('back-btn').addEventListener('click', ()=>{ showFeedback=false; render(); });
+  document.getElementById('back-btn').addEventListener('click', goHome);
   document.getElementById('feedback-name').addEventListener('input', e=> feedbackForm.name = e.target.value );
   document.getElementById('feedback-message').addEventListener('input', e=> feedbackForm.message = e.target.value );
   document.getElementById('feedback-submit-btn').addEventListener('click', async (ev)=>{
@@ -1940,7 +2045,7 @@ function renderRoulette(){
   `;
 }
 function bindRouletteEvents(){
-  document.getElementById('back-btn').addEventListener('click', ()=>{ showRoulette=false; render(); });
+  document.getElementById('back-btn').addEventListener('click', goHome);
   document.getElementById('roulette-name-input').addEventListener('input', e=> rouletteNameInput = e.target.value );
   document.getElementById('roulette-add-btn').addEventListener('click', ()=>{
     const val = rouletteNameInput.trim();
