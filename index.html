@@ -160,7 +160,13 @@
     display:inline-flex; align-items:center; justify-content:center; gap:4px; line-height:1;
     height:32px; box-sizing:border-box;
   }
-  .hamburger-icon{ font-size:17px; display:inline-block; line-height:1; }
+  .hamburger-icon{
+    display:inline-flex; flex-direction:column; justify-content:center; align-items:center; gap:3px;
+    width:16px; height:12px;
+  }
+  .hamburger-icon span{
+    display:block; width:100%; height:2px; background:var(--yellow); border-radius:1px;
+  }
   .menu-toggle:hover{ background:rgba(249,212,35,0.15); }
   .site-header-brand{
     position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
@@ -1444,7 +1450,7 @@ function renderSiteHeader(){
     <div class="nav-wrap">
       <div class="site-header">
         <div class="menu-hover-zone">
-          <button class="menu-toggle" id="menu-toggle-btn"><span class="hamburger-icon">☰</span><span>MENU</span></button>
+          <button class="menu-toggle" id="menu-toggle-btn"><span class="hamburger-icon"><span></span><span></span><span></span></span><span>MENU</span></button>
           <div class="menu-panel ${menuOpen?'open':''}" id="menu-panel">
             <button class="menu-item" data-target="home">🏠 홈</button>
             <button class="menu-item" data-target="vote">🗳️ 투표하기</button>
@@ -1877,7 +1883,7 @@ function renderVoting(doc){
 
     <div class="card">
       <div class="step-label"><span class="step-num">1</span> 이름</div>
-      <div style="margin-left:38px; font-size:15px; font-weight:700;">👤 ${esc(voteForm.name)}</div>
+      <div style="margin-left:38px; font-size:15px; font-weight:700; display:flex; align-items:center;">${renderMiniCharacter(myProfile)}${esc(voteForm.name)}</div>
     </div>
 
     <div class="card">
@@ -2207,7 +2213,7 @@ function renderRestaurant(doc){
 
     <div class="card">
       <div class="step-label"><span class="step-num">2</span> 이름</div>
-      <div style="margin-left:38px; font-size:15px; font-weight:700;">👤 ${esc(restaurantForm.name)}</div>
+      <div style="margin-left:38px; font-size:15px; font-weight:700; display:flex; align-items:center;">${renderMiniCharacter(myProfile)}${esc(restaurantForm.name)}</div>
     </div>
 
     <div class="card">
