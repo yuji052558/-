@@ -62,7 +62,7 @@
     position:relative;
     text-align:center;
     background: var(--yellow);
-    border: 3px solid var(--ink);
+    border: 2px solid var(--ink);
     border-radius: 22px;
     padding: 34px 18px 26px;
     margin: 6px 0 22px;
@@ -144,12 +144,12 @@
   .team-bar b{ color:var(--ink); }
 
   /* ---------- SITE HEADER / MENU ---------- */
+  .nav-wrap{ position:relative; margin-bottom:14px; }
   .site-header{
     position:sticky; top:0; z-index:40;
     display:flex; align-items:center; justify-content:space-between;
     background:var(--ink); color:var(--yellow);
     padding:11px 14px; border-radius:14px;
-    margin-bottom:14px;
   }
   .menu-toggle{
     background:none; border:1.5px solid var(--yellow); color:var(--yellow);
@@ -162,10 +162,17 @@
     cursor:pointer; letter-spacing:.5px;
   }
   .menu-panel{
-    max-height:0; overflow:hidden; transition:max-height .25s ease;
+    position:absolute; top:calc(100% + 8px); left:0; right:0;
+    max-height:0; overflow:hidden; opacity:0; pointer-events:none;
+    transition:max-height .22s ease, opacity .18s ease;
     background:var(--white); border:0 solid var(--ink); border-radius:14px;
+    box-shadow:0 12px 28px rgba(0,0,0,0.2);
+    z-index:45;
   }
-  .menu-panel.open{ max-height:320px; border-width:2.5px; margin:-8px 0 14px; }
+  .menu-panel.open{ max-height:320px; border-width:1.5px; opacity:1; pointer-events:auto; }
+  @media (hover:hover) and (pointer:fine){
+    .nav-wrap:hover .menu-panel{ max-height:320px; border-width:1.5px; opacity:1; pointer-events:auto; }
+  }
   .menu-item{
     display:block; width:100%; text-align:left; background:none; border:none; border-bottom:1px solid var(--line);
     padding:13px 16px; font-size:14px; font-weight:700; color:var(--ink); cursor:pointer; font-family:inherit;
@@ -176,7 +183,7 @@
   /* ---------- HOME NAV ---------- */
   .home-nav-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-bottom:18px; }
   .home-nav-card{
-    background:var(--white); border:2.5px solid var(--ink); border-radius:16px;
+    background:var(--white); border:1.5px solid var(--ink); border-radius:16px;
     padding:24px 10px; display:flex; flex-direction:column; align-items:center; gap:8px;
     cursor:pointer; font-family:'Noto Sans KR',sans-serif; font-weight:800; font-size:14px; color:var(--ink);
   }
@@ -186,7 +193,7 @@
   /* ---------- CARDS / FORM ---------- */
   .card{
     background: var(--white);
-    border: 2.5px solid var(--ink);
+    border: 1.5px solid var(--ink);
     border-radius: var(--radius);
     padding: 20px;
     margin-bottom: 16px;
@@ -1126,19 +1133,21 @@ function heroBlock(subtitle, poll){
 
 function renderSiteHeader(){
   return `
-    <div class="site-header">
-      <button class="menu-toggle" id="menu-toggle-btn">☰ MENU</button>
-      <div class="site-header-brand" id="header-logo-btn">BOKPICK</div>
-      <button class="menu-toggle" id="header-copy-btn">🔗 LINK</button>
-    </div>
-    <div class="menu-panel ${menuOpen?'open':''}" id="menu-panel">
-      <button class="menu-item" data-target="home">🏠 홈</button>
-      <button class="menu-item" data-target="vote">🗳️ 투표하기</button>
-      <button class="menu-item" data-target="budget">💰 복후비</button>
-      <button class="menu-item" data-target="history">📖 지난 회식 기록</button>
-      <button class="menu-item" data-target="feedback">💬 피드백</button>
-      <button class="menu-item" data-target="roulette">🎡 룰렛</button>
-      ${teamId ? `<div class="menu-team-info">👥 ${esc(teamDoc && teamDoc.teamName ? teamDoc.teamName : '팀')} · 코드 ${esc(teamId)}</div>` : ''}
+    <div class="nav-wrap">
+      <div class="site-header">
+        <button class="menu-toggle" id="menu-toggle-btn">☰ MENU</button>
+        <div class="site-header-brand" id="header-logo-btn">BOKPICK</div>
+        <button class="menu-toggle" id="header-copy-btn">🔗 LINK</button>
+      </div>
+      <div class="menu-panel ${menuOpen?'open':''}" id="menu-panel">
+        <button class="menu-item" data-target="home">🏠 홈</button>
+        <button class="menu-item" data-target="vote">🗳️ 투표하기</button>
+        <button class="menu-item" data-target="budget">💰 복후비</button>
+        <button class="menu-item" data-target="history">📖 지난 회식 기록</button>
+        <button class="menu-item" data-target="feedback">💬 피드백</button>
+        <button class="menu-item" data-target="roulette">🎡 룰렛</button>
+        ${teamId ? `<div class="menu-team-info">👥 ${esc(teamDoc && teamDoc.teamName ? teamDoc.teamName : '팀')} · 코드 ${esc(teamId)}</div>` : ''}
+      </div>
     </div>
   `;
 }
@@ -1151,7 +1160,21 @@ function goHome(){
 
 function bindSiteHeader(){
   const menuBtn = document.getElementById('menu-toggle-btn');
-  if(menuBtn) menuBtn.addEventListener('click', ()=>{ menuOpen = !menuOpen; render(); });
+  if(menuBtn) menuBtn.addEventListener('click', (ev)=>{
+    ev.stopPropagation();
+    menuOpen = !menuOpen;
+    render();
+  });
+  if(menuOpen){
+    document.addEventListener('click', function closeMenuOnce(ev){
+      const wrap = document.querySelector('.nav-wrap');
+      if(wrap && !wrap.contains(ev.target)){
+        menuOpen = false;
+        render();
+      }
+      document.removeEventListener('click', closeMenuOnce);
+    }, { once:true });
+  }
 
   const brand = document.getElementById('header-logo-btn');
   if(brand) brand.addEventListener('click', goHome);
