@@ -1605,14 +1605,16 @@ function renderDone(doc){
   const s = doc.finalSummary || {};
   const dateInfo = s.date ? fmtDate(s.date) : null;
   return `
-    ${heroBlock('이번 회식이 확정됐어요 🎉', doc)}
-    <div class="final-card" id="final-card-capture">
-      <div class="tag">CONFIRMED</div>
-      <h2>${dateInfo ? `${dateInfo.md} (${dateInfo.dow}요일)` : '날짜 미정'}</h2>
-      <div class="final-row"><span>활동</span><b>${(s.activities||[]).map(esc).join(', ')||'-'}</b></div>
-      ${s.foods && s.foods.length ? `<div class="final-row"><span>메뉴</span><b>${s.foods.map(esc).join(', ')}</b></div>` : ''}
-      ${s.restaurantName ? `<div class="final-row"><span>식당</span><b>${esc(s.restaurantName)}</b></div>` : ''}
-      ${s.time ? `<div class="final-row"><span>시간</span><b>${esc(s.time)}</b></div>` : ''}
+    <div id="final-card-capture">
+      ${heroBlock('이번 회식이 확정됐어요 🎉', doc)}
+      <div class="final-card">
+        <div class="tag">CONFIRMED</div>
+        <h2>${dateInfo ? `${dateInfo.md} (${dateInfo.dow}요일)` : '날짜 미정'}</h2>
+        <div class="final-row"><span>활동</span><b>${(s.activities||[]).map(esc).join(', ')||'-'}</b></div>
+        ${s.foods && s.foods.length ? `<div class="final-row"><span>메뉴</span><b>${s.foods.map(esc).join(', ')}</b></div>` : ''}
+        ${s.restaurantName ? `<div class="final-row"><span>식당</span><b>${esc(s.restaurantName)}</b></div>` : ''}
+        ${s.time ? `<div class="final-row"><span>시간</span><b>${esc(s.time)}</b></div>` : ''}
+      </div>
     </div>
     <div style="display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap;">
       <button class="kakao-btn" id="kakao-share-btn" style="flex:1; min-width:130px;">💬 카카오톡 공유</button>
@@ -1644,7 +1646,7 @@ function buildFinalSummaryText(doc){
 }
 
 function getLogoImageUrl(){
-  return `${window.location.origin}${window.location.pathname.replace(/index\.html$/,'')}bokpick-share-v2.png`;
+  return `${window.location.origin}${window.location.pathname.replace(/index\.html$/,'')}bokpick-share-v3.png`;
 }
 
 function shareToKakao(doc){
@@ -1721,7 +1723,7 @@ function bindDoneEvents(doc){
     if(!el || typeof html2canvas !== 'function') return;
     saveImgBtn.disabled = true; saveImgBtn.textContent = '만드는 중...';
     try{
-      const canvas = await html2canvas(el, { backgroundColor: null, scale: 2 });
+      const canvas = await html2canvas(el, { backgroundColor: '#FBF8EF', scale: 2 });
       const link = document.createElement('a');
       link.download = 'bokpick-회식확정.png';
       link.href = canvas.toDataURL('image/png');
