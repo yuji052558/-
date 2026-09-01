@@ -487,6 +487,7 @@ let reassignTarget = null;
 let reassignDivision = '';
 let reassignTeamId = '';
 let reassignTeamName = '';
+let removeMemberConfirm = null;
 let orgDivisionsLoaded = false;
 let teamId = null;
 let teamDoc = null;
@@ -621,6 +622,10 @@ async function reassignMember(uid, newTeamId, newTeamName){
 async function giftPoints(uid, amount){
   await userProfilesRef.doc(uid).set({ points: firebase.firestore.FieldValue.increment(amount) }, { merge:true });
 }
+async function removeMember(uid){
+  await db.collection('userTeams').doc(uid).delete();
+  await userProfilesRef.doc(uid).delete();
+}
 
 /* ==================== 자유토론 ==================== */
 async function addDiscussionComment(name, message, character){
@@ -734,11 +739,9 @@ let globalFeedbackItems = null;
 let feedbackForm = { name:'', message:'' };
 let menuOpen = false;
 let historyDeleteConfirmId = null;
-let rouletteNames = [];
-let rouletteNameInput = '';
-let rouletteSpinning = false;
-let rouletteRotation = 0;
-let rouletteWinner = null;
+let lunchSpinning = false;
+let lunchRotation = 0;
+let lunchWinner = null;
 
 let setupState = {
   title: '우리팀 회식',
@@ -982,10 +985,6 @@ function renderHome(){
       <button class="home-nav-card" data-target="vote">
         <span class="home-nav-icon">🗳️</span>
         <span class="home-nav-label">투표하기</span>
-      </button>
-      <button class="home-nav-card" data-target="roulette">
-        <span class="home-nav-icon">🎡</span>
-        <span class="home-nav-label">룰렛</span>
       </button>
       <button class="home-nav-card" data-target="feedback">
         <span class="home-nav-icon">💬</span>
@@ -1237,8 +1236,7 @@ async function playLottery(){
 
   const r = Math.random()*100;
   let result;
-  if(r < 55) result = { label:'꽝', net:-COST };
-  else if(r < 80) result = { label:'본전', net:0 };
+  if(r < 80) result = { label:'꽝', net:0 };
   else if(r < 95) result = { label:'20P 당첨!', net: 20-COST };
   else result = { label:'50P 당첨! 🎉', net: 50-COST };
 
@@ -1546,12 +1544,6 @@ function render(){
     bindFeedbackEvents();
     return;
   }
-  if(currentView==='roulette'){
-    app.innerHTML = renderSiteHeader() + renderRoulette();
-    bindSiteHeader();
-    bindRouletteEvents();
-    return;
-  }
   if(currentView==='customize'){
     if(!myProfileLoaded){ app.innerHTML = renderSiteHeader() + `<div class="loading">불러오는 중...</div>`; bindSiteHeader(); loadMyProfile(); return; }
     app.innerHTML = renderSiteHeader() + renderCustomize();
@@ -1581,6 +1573,12 @@ function render(){
     app.innerHTML = renderSiteHeader() + renderArcadeSlot();
     bindSiteHeader();
     bindArcadeSlotEvents();
+    return;
+  }
+  if(currentView==='arcade-lunch'){
+    app.innerHTML = renderSiteHeader() + renderArcadeLunch();
+    bindSiteHeader();
+    bindArcadeLunchEvents();
     return;
   }
   if(currentView==='my-page'){
@@ -1694,7 +1692,6 @@ function renderSiteHeader(){
             <button class="menu-item" data-target="budget">💰 복후비</button>
             <button class="menu-item" data-target="history">📖 지난 회식 기록</button>
             <button class="menu-item" data-target="feedback">💬 피드백</button>
-            <button class="menu-item" data-target="roulette">🎡 룰렛</button>
             <button class="menu-item" data-target="arcade">🕹️ 복픽오락실</button>
             ${isAdmin() ? `
               <div class="menu-section-label">관리자 메뉴</div>
@@ -2123,7 +2120,7 @@ function renderVoting(doc){
 
     <div class="card">
       <div class="step-label"><span class="step-num">1</span> 이름</div>
-      <div style="margin-left:38px; font-size:15px; font-weight:700; display:flex; align-items:center;">${renderMiniCharacter(myProfile)}${esc(voteForm.name)}</div>
+      <div style="margin-left:38px; font-size:15px; font-weight:700; display:flex; align-items:center;">${renderMiniCharacter(myProfile)}${nameSpan(voteForm.name, myProfile)}</div>
     </div>
 
     <div class="card">
@@ -2198,7 +2195,7 @@ function renderVoting(doc){
     <div class="card">
       <div class="step-label" style="font-size:16px;">🙋 투표한 사람 (${res.total}명)</div>
       <div class="voter-list">
-        ${Object.entries(doc.votes||{}).map(([n,v])=>`<span class="voter-tag">${renderMiniCharacter(v.character)}${esc(n)} ${(authUser && n===(authUser.displayName||authUser.email))?`<button data-name="${esc(n)}" class="edit-vote">수정</button>`:''}</span>`).join('')}
+        ${Object.entries(doc.votes||{}).map(([n,v])=>`<span class="voter-tag">${renderMiniCharacter(v.character)}${nameSpan(n, v.character)} ${(authUser && n===(authUser.displayName||authUser.email))?`<button data-name="${esc(n)}" class="edit-vote">수정</button>`:''}</span>`).join('')}
       </div>
     </div>
     <div class="card">
@@ -2246,7 +2243,7 @@ function renderDiscussion(doc){
     ${items.length===0 ? `<p class="empty-note">아직 댓글이 없어요.</p>` :
       items.slice().reverse().map(c=>`
       <div class="history-item">
-        <div class="h-date" style="display:flex; align-items:center;">${renderMiniCharacter(c.character)}${esc(c.name)}</div>
+        <div class="h-date" style="display:flex; align-items:center;">${renderMiniCharacter(c.character)}${nameSpan(c.name, c.character)}</div>
         <div class="h-meta">${esc(c.message)}</div>
         <button class="ghost-btn reply-toggle-btn" data-id="${esc(c.id)}" style="margin-top:6px; padding:4px 8px; font-size:11px;">답글</button>
         ${replyTarget===c.id ? `
@@ -2260,7 +2257,7 @@ function renderDiscussion(doc){
           <div style="margin-top:10px; margin-left:20px; border-left:2px solid var(--line); padding-left:12px;">
             ${(c.replies||[]).map(r=>`
               <div style="margin-bottom:8px;">
-                <div style="font-weight:700; font-size:13px; display:flex; align-items:center;">${renderMiniCharacter(r.character)}${esc(r.name)}</div>
+                <div style="font-weight:700; font-size:13px; display:flex; align-items:center;">${renderMiniCharacter(r.character)}${nameSpan(r.name, r.character)}</div>
                 <div style="font-size:13px; color:var(--ink); margin-top:2px;">${esc(r.message)}</div>
               </div>
             `).join('')}
@@ -2279,7 +2276,7 @@ function bindDiscussionEvents(doc){
     if(!msg) return;
     submitBtn.disabled = true; submitBtn.textContent = '등록 중...';
     try{
-      await addDiscussionComment(authUser.displayName || '익명', msg, { species: myProfile.species||'cat', color: myProfile.color||'black' });
+      await addDiscussionComment(authUser.displayName || '익명', msg, { species: myProfile.species||'cat', color: myProfile.color||'black', nameColor: myProfile.nameColor||null });
       discussionInput = '';
     }catch(e){ console.error(e); }
     submitBtn.disabled = false; submitBtn.textContent = '댓글 남기기';
@@ -2306,7 +2303,7 @@ function bindDiscussionEvents(doc){
       const btn = ev.currentTarget;
       btn.disabled = true; btn.textContent = '등록 중...';
       try{
-        await addDiscussionReply(btn.dataset.id, authUser.displayName || '익명', msg, { species: myProfile.species||'cat', color: myProfile.color||'black' });
+        await addDiscussionReply(btn.dataset.id, authUser.displayName || '익명', msg, { species: myProfile.species||'cat', color: myProfile.color||'black', nameColor: myProfile.nameColor||null });
         replyTarget = null;
         replyInput = '';
       }catch(e){ console.error(e); }
@@ -2382,7 +2379,7 @@ function bindVotingEvents(doc){
       activities: Array.from(voteForm.activities), activityNotes: voteForm.activityNotes.slice(),
       foods: Array.from(voteForm.foods), foodNotes: voteForm.foodNotes.slice(),
       dates: Array.from(voteForm.dates),
-      character: { species: myProfile.species||'cat', color: myProfile.color||'black' }
+      character: { species: myProfile.species||'cat', color: myProfile.color||'black', nameColor: myProfile.nameColor||null }
     };
     try{
       const isNewVote = !editingName;
@@ -2540,7 +2537,7 @@ function renderRestaurant(doc){
 
     <div class="card">
       <div class="step-label"><span class="step-num">2</span> 이름</div>
-      <div style="margin-left:38px; font-size:15px; font-weight:700; display:flex; align-items:center;">${renderMiniCharacter(myProfile)}${esc(restaurantForm.name)}</div>
+      <div style="margin-left:38px; font-size:15px; font-weight:700; display:flex; align-items:center;">${renderMiniCharacter(myProfile)}${nameSpan(restaurantForm.name, myProfile)}</div>
     </div>
 
     <div class="card">
@@ -2560,7 +2557,7 @@ function renderRestaurant(doc){
     <div class="card">
       <div class="step-label" style="font-size:16px;">🙋 식당 투표한 사람 (${restoRes.total}명)</div>
       <div class="voter-list">
-        ${Object.entries(votes).map(([n,v])=>`<span class="voter-tag">${renderMiniCharacter(v && typeof v==='object' ? v.character : null)}${esc(n)} ${(authUser && n===(authUser.displayName||authUser.email))?`<button data-name="${esc(n)}" class="edit-resto-vote">수정</button>`:''}</span>`).join('')}
+        ${Object.entries(votes).map(([n,v])=>`<span class="voter-tag">${renderMiniCharacter(v && typeof v==='object' ? v.character : null)}${nameSpan(n, v && typeof v==='object' ? v.character : null)} ${(authUser && n===(authUser.displayName||authUser.email))?`<button data-name="${esc(n)}" class="edit-resto-vote">수정</button>`:''}</span>`).join('')}
       </div>
     </div>` : ''}
 
@@ -2642,7 +2639,7 @@ function bindRestaurantEvents(doc){
     errEl.style.display='none';
     btn.disabled=true; btn.textContent='저장 중...';
     try{
-      await saveRestoVote(name, restaurantForm.selectedOptionId, { species: myProfile.species||'cat', color: myProfile.color||'black' }, editingRestoVoter);
+      await saveRestoVote(name, restaurantForm.selectedOptionId, { species: myProfile.species||'cat', color: myProfile.color||'black', nameColor: myProfile.nameColor||null }, editingRestoVoter);
       editingRestoVoter=null;
       restaurantForm = { name:'', newOptionName:'', newOptionNote:'', selectedOptionId:null };
     }catch(e){
@@ -2983,105 +2980,71 @@ function bindFeedbackEvents(){
 
 /* ==================== 룰렛 (엔터테인먼트) ==================== */
 const ROULETTE_COLORS = ['#111111','#F9D423','#FFFFFF','#FF4B3E'];
-function renderRoulette(){
-  const n = rouletteNames.length;
-  const seg = n>0 ? 360/n : 0;
-  let gradient = '#E4DCC0';
-  if(n>0){
-    const parts = rouletteNames.map((name,i)=>{
-      const color = ROULETTE_COLORS[i % ROULETTE_COLORS.length];
-      return `${color} ${(i*seg).toFixed(2)}deg ${((i+1)*seg).toFixed(2)}deg`;
-    });
-    gradient = `conic-gradient(from 0deg, ${parts.join(', ')})`;
-  }
-  const labels = rouletteNames.map((name,i)=>{
+const LUNCH_MENU_ITEMS = ['쌀국수','돈까스','떡볶이','국밥','한식뷔페','짜장면','짬뽕','김밥','냉면','초밥','파스타','치킨','라면','비빔밥','샌드위치'];
+
+function renderArcadeLunch(){
+  const items = LUNCH_MENU_ITEMS;
+  const n = items.length;
+  const seg = 360/n;
+  const parts = items.map((name,i)=>{
+    const color = ROULETTE_COLORS[i % ROULETTE_COLORS.length];
+    return `${color} ${(i*seg).toFixed(2)}deg ${((i+1)*seg).toFixed(2)}deg`;
+  });
+  const gradient = `conic-gradient(from 0deg, ${parts.join(', ')})`;
+  const labels = items.map((name,i)=>{
     const mid = i*seg + seg/2;
     const color = ROULETTE_COLORS[i % ROULETTE_COLORS.length];
     const textColor = (color==='#F9D423' || color==='#FFFFFF') ? '#111111' : '#FFFFFF';
     return `<div class="wheel-label" style="transform:rotate(${mid}deg);">
-      <span style="color:${textColor};">${esc(name)}</span>
+      <span style="color:${textColor}; font-size:11px;">${esc(name)}</span>
     </div>`;
   }).join('');
 
   return `
-    ${heroBlock('돌림판으로 재미있게 정해요')}
-    <div class="topnav" style="justify-content:flex-start; margin-top:-6px;">
-      <button class="ghost-btn" id="back-btn">← 돌아가기</button>
-    </div>
-    <div class="card">
-      <div class="step-label"><span class="step-num">1</span> 참여자 이름 추가</div>
-      <p class="step-desc">메뉴를 정할 사람들의 이름을 넣어주세요 (2명 이상)</p>
-      <div style="margin-left:38px;" class="other-add-row">
-        <input type="text" id="roulette-name-input" placeholder="이름 입력" value="${esc(rouletteNameInput)}">
-        <button id="roulette-add-btn">추가</button>
-      </div>
-      ${currentDoc && currentDoc.votes && Object.keys(currentDoc.votes).length ? `<div style="margin-left:38px; margin-top:8px;"><button class="ghost-btn" id="roulette-import-btn">🙋 지금 투표자 명단 불러오기</button></div>` : ''}
-      ${rouletteNames.length ? `<div class="other-chip-row" style="margin-left:38px; margin-top:10px;">${rouletteNames.map((n,i)=>`<span class="other-chip">${esc(n)} <button data-idx="${i}" class="rm-roulette-name">✕</button></span>`).join('')}</div>` : ''}
-    </div>
-
+    ${heroBlock('오늘 점심, 돌림판이 정해드려요')}
+    ${renderArcadeNav('arcade-lunch')}
     <div class="card" style="text-align:center;">
-      <div class="step-label" style="justify-content:center;"><span class="step-num">2</span> 돌려서 정하기</div>
+      <div class="step-label" style="justify-content:center;">🍽 돌려서 정하기</div>
       <div class="roulette-wrap">
         <div class="roulette-pointer">▼</div>
         <div class="roulette-wheel-outer">
-          <div class="roulette-wheel" id="roulette-wheel" style="background:${gradient}; transform:rotate(${rouletteRotation}deg);">
+          <div class="roulette-wheel" id="lunch-wheel" style="background:${gradient}; transform:rotate(${lunchRotation}deg);">
             ${labels}
           </div>
         </div>
       </div>
-      <button class="admin-btn" id="roulette-spin-btn" style="margin-top:18px;" ${(rouletteNames.length<2||rouletteSpinning)?'disabled':''}>${rouletteSpinning?'돌아가는 중...':'🎡 돌리기'}</button>
-      ${rouletteWinner ? `<div class="final-row" style="justify-content:center; margin-top:16px; font-size:17px;">🎉 <b style="color:var(--red);">${esc(rouletteWinner)}</b>님이 메뉴를 정합니다!</div>` : ''}
+      <button class="admin-btn" id="lunch-spin-btn" style="margin-top:18px;" ${lunchSpinning?'disabled':''}>${lunchSpinning?'돌아가는 중...':'🍽 돌리기'}</button>
+      ${lunchWinner ? `<div class="final-row" style="justify-content:center; margin-top:16px; font-size:17px;">🎉 오늘의 점심은 <b style="color:var(--red);">${esc(lunchWinner)}</b>!</div>` : ''}
     </div>
   `;
 }
-function bindRouletteEvents(){
-  document.getElementById('back-btn').addEventListener('click', goHome);
-  document.getElementById('roulette-name-input').addEventListener('input', e=> rouletteNameInput = e.target.value );
-  document.getElementById('roulette-add-btn').addEventListener('click', ()=>{
-    const val = rouletteNameInput.trim();
-    if(!val) return;
-    rouletteNames.push(val);
-    rouletteNameInput = '';
-    rouletteWinner = null;
-    render();
-  });
-  const importBtn = document.getElementById('roulette-import-btn');
-  if(importBtn) importBtn.addEventListener('click', ()=>{
-    const voterNames = Object.keys((currentDoc && currentDoc.votes) || {});
-    rouletteNames = Array.from(new Set([...rouletteNames, ...voterNames]));
-    render();
-  });
-  document.querySelectorAll('.rm-roulette-name').forEach(el=>{
-    el.addEventListener('click', ()=>{
-      rouletteNames.splice(parseInt(el.dataset.idx),1);
-      rouletteWinner = null;
-      render();
-    });
-  });
-  const spinBtn = document.getElementById('roulette-spin-btn');
+function bindArcadeLunchEvents(){
+  bindArcadeNavEvents();
+  const spinBtn = document.getElementById('lunch-spin-btn');
   if(spinBtn) spinBtn.addEventListener('click', ()=>{
-    if(rouletteSpinning || rouletteNames.length<2) return;
-    const n = rouletteNames.length;
+    if(lunchSpinning) return;
+    const items = LUNCH_MENU_ITEMS;
+    const n = items.length;
     const seg = 360/n;
     const winnerIndex = Math.floor(Math.random()*n);
     const mid = winnerIndex*seg + seg/2;
     const targetMod = (360 - mid + 360) % 360;
-    const currentMod = ((rouletteRotation % 360) + 360) % 360;
+    const currentMod = ((lunchRotation % 360) + 360) % 360;
     const delta = ((targetMod - currentMod) + 360) % 360;
-    const newRotation = rouletteRotation + 360*5 + delta;
+    const newRotation = lunchRotation + 360*5 + delta;
 
-    rouletteSpinning = true;
-    rouletteWinner = null;
-    const wheelEl = document.getElementById('roulette-wheel');
+    lunchSpinning = true;
+    lunchWinner = null;
+    const wheelEl = document.getElementById('lunch-wheel');
     spinBtn.disabled = true; spinBtn.textContent = '돌아가는 중...';
     if(wheelEl){
       wheelEl.style.transition = 'transform 4.2s cubic-bezier(0.15,0.65,0.15,1)';
       wheelEl.style.transform = `rotate(${newRotation}deg)`;
     }
-    rouletteRotation = newRotation;
+    lunchRotation = newRotation;
     setTimeout(()=>{
-      rouletteSpinning = false;
-      rouletteWinner = rouletteNames[winnerIndex];
+      lunchSpinning = false;
+      lunchWinner = items[winnerIndex];
       render();
     }, 4300);
   });
@@ -3136,21 +3099,36 @@ function renderMiniCharacter(character){
   const w = Math.round(h*sp.ratio);
   return `<img src="${src}" style="width:${w}px; height:${h}px; vertical-align:middle; margin-right:4px;">`;
 }
+const NAME_COLORS = {
+  default: { label:'기본', hex:null },
+  red: { label:'빨강', hex:'#D14343' },
+  blue: { label:'파랑', hex:'#2E5FB0' },
+  green: { label:'초록', hex:'#2F8A4E' },
+  purple: { label:'보라', hex:'#7B4FC9' },
+  orange: { label:'주황', hex:'#D9761F' },
+  pink: { label:'핑크', hex:'#C93D7A' },
+};
+function nameSpan(name, character){
+  const hex = character && character.nameColor ? NAME_COLORS[character.nameColor] && NAME_COLORS[character.nameColor].hex : null;
+  return `<span style="${hex?`color:${hex};`:''}">${esc(name)}</span>`;
+}
 
 let customizeError = '';
 let customizeDraft = null;
 
 function renderCustomize(){
-  if(!customizeDraft) customizeDraft = { species: myProfile.species, color: myProfile.color };
+  if(!customizeDraft) customizeDraft = { species: myProfile.species, color: myProfile.color, nameColor: myProfile.nameColor||'default' };
   const speciesChanged = customizeDraft.species !== myProfile.species;
   const colorChanged = customizeDraft.color !== myProfile.color;
-  const cost = (speciesChanged?200:0) + (colorChanged?200:0);
+  const nameColorChanged = customizeDraft.nameColor !== (myProfile.nameColor||'default');
+  const cost = (speciesChanged?200:0) + (colorChanged?200:0) + (nameColorChanged?200:0);
   return `
     ${heroBlock('내 캐릭터를 꾸며봐요')}
     <div class="card" style="text-align:center;">
       <div class="step-label" style="justify-content:center; font-size:16px;">🎨 미리보기</div>
       ${renderCharacterPreview(customizeDraft, 200)}
-      <p style="font-size:14px; font-weight:800; margin-top:10px;">보유 포인트: ${(myProfile.points||0).toLocaleString()}P</p>
+      <p style="font-size:15px; font-weight:800; margin-top:10px;">${nameSpan(authUser.displayName||'', {nameColor: customizeDraft.nameColor==='default'?null:customizeDraft.nameColor})}</p>
+      <p style="font-size:14px; font-weight:800; margin-top:4px;">보유 포인트: ${(myProfile.points||0).toLocaleString()}P</p>
     </div>
     <div class="card">
       <div class="step-label" style="font-size:15px;">캐릭터 종류 <span style="font-weight:400; color:var(--muted); font-size:12px;">(변경 시 200P)</span></div>
@@ -3162,6 +3140,12 @@ function renderCustomize(){
       <div class="step-label" style="font-size:15px;">색상 <span style="font-weight:400; color:var(--muted); font-size:12px;">(변경 시 200P)</span></div>
       <div class="option-grid" style="margin-left:0;">
         ${Object.entries(CHAR_COLOR_LABELS).map(([key,label])=>`<div class="option-pill customize-pill ${customizeDraft.color===key?'selected':''}" data-cat="color" data-val="${key}">${esc(label)}</div>`).join('')}
+      </div>
+    </div>
+    <div class="card">
+      <div class="step-label" style="font-size:15px;">닉네임 색상 <span style="font-weight:400; color:var(--muted); font-size:12px;">(변경 시 200P)</span></div>
+      <div class="option-grid" style="margin-left:0;">
+        ${Object.entries(NAME_COLORS).map(([key,c])=>`<div class="option-pill customize-pill ${customizeDraft.nameColor===key?'selected':''}" data-cat="nameColor" data-val="${key}" style="${c.hex?`color:${c.hex}; border-color:${c.hex};`:''}">${esc(c.label)}</div>`).join('')}
       </div>
     </div>
     ${cost>0 ? `<p class="hint" style="text-align:center; font-weight:700; color:var(--ink);">변경 비용: ${cost}P</p>` : ''}
@@ -3185,7 +3169,8 @@ function bindCustomizeEvents(){
   if(saveBtn) saveBtn.addEventListener('click', async ()=>{
     const speciesChanged = customizeDraft.species !== myProfile.species;
     const colorChanged = customizeDraft.color !== myProfile.color;
-    const cost = (speciesChanged?200:0) + (colorChanged?200:0);
+    const nameColorChanged = customizeDraft.nameColor !== (myProfile.nameColor||'default');
+    const cost = (speciesChanged?200:0) + (colorChanged?200:0) + (nameColorChanged?200:0);
     if(cost===0) return;
     if((myProfile.points||0) < cost){
       customizeError = `포인트가 부족해요 (${cost}P 필요, 현재 ${myProfile.points||0}P)`;
@@ -3196,9 +3181,11 @@ function bindCustomizeEvents(){
     const prevPoints = myProfile.points;
     const prevSpecies = myProfile.species;
     const prevColor = myProfile.color;
+    const prevNameColor = myProfile.nameColor;
     myProfile.points = (myProfile.points||0) - cost;
     myProfile.species = customizeDraft.species;
     myProfile.color = customizeDraft.color;
+    myProfile.nameColor = customizeDraft.nameColor==='default' ? null : customizeDraft.nameColor;
     try{
       await saveMyProfile();
       customizeDraft = null;
@@ -3209,15 +3196,37 @@ function bindCustomizeEvents(){
       myProfile.points = prevPoints;
       myProfile.species = prevSpecies;
       myProfile.color = prevColor;
+      myProfile.nameColor = prevNameColor;
       customizeError = '저장에 실패했어요 (' + (e.code || e.message || '알 수 없는 오류') + '). Firestore 규칙을 확인해주세요.';
     }
     render();
   });
 }
 
+function renderArcadeNav(current){
+  const items = [
+    { key:'arcade', icon:'🕹️', label:'오락실 홈' },
+    { key:'arcade-lottery', icon:'🎟️', label:'복권' },
+    { key:'arcade-coinflip', icon:'🪙', label:'홀짝' },
+    { key:'arcade-slot', icon:'🎰', label:'슬롯' },
+    { key:'arcade-lunch', icon:'🍽', label:'점심메뉴' },
+  ];
+  return `
+    <div style="display:flex; gap:6px; overflow-x:auto; margin-bottom:16px; padding-bottom:2px;">
+      ${items.map(it=>`<button class="arcade-nav-btn ${current===it.key?'active':''}" data-target="${it.key}" style="flex-shrink:0; padding:8px 12px; border-radius:999px; border:1.5px solid var(--ink); background:${current===it.key?'var(--ink)':'var(--white)'}; color:${current===it.key?'var(--yellow)':'var(--ink)'}; font-size:12.5px; font-weight:800; cursor:pointer; white-space:nowrap;">${it.icon} ${esc(it.label)}</button>`).join('')}
+    </div>
+  `;
+}
+function bindArcadeNavEvents(){
+  document.querySelectorAll('.arcade-nav-btn[data-target]').forEach(el=>{
+    el.addEventListener('click', ()=>{ currentView = el.dataset.target; render(); });
+  });
+}
+
 function renderArcadeHub(){
   return `
     ${heroBlock('포인트로 즐기는 복픽오락실')}
+    ${renderArcadeNav('arcade')}
     <div class="card" style="text-align:center;">
       <p style="font-size:14px; font-weight:800;">보유 포인트: ${(myProfile.points||0).toLocaleString()}P</p>
     </div>
@@ -3234,10 +3243,15 @@ function renderArcadeHub(){
         <span class="home-nav-icon">🎰</span>
         <span class="home-nav-label">복픽 슬롯</span>
       </button>
+      <button class="home-nav-card" data-target="arcade-lunch">
+        <span class="home-nav-icon">🍽</span>
+        <span class="home-nav-label">랜덤 점심메뉴</span>
+      </button>
     </div>
   `;
 }
 function bindArcadeHubEvents(){
+  bindArcadeNavEvents();
   document.querySelectorAll('.home-nav-card[data-target]').forEach(el=>{
     el.addEventListener('click', ()=>{ currentView = el.dataset.target; render(); });
   });
@@ -3249,6 +3263,7 @@ function renderArcadeLottery(){
   const remaining = Math.max(0, 3-count);
   return `
     ${heroBlock('하루 3번, 복권을 긁어보세요')}
+    ${renderArcadeNav('arcade-lottery')}
     <div class="card" style="text-align:center;">
       <div class="step-label" style="justify-content:center; font-size:16px;">🎟️ 복권 (10P)</div>
       <p style="font-size:13px; color:var(--muted);">오늘 남은 횟수: ${remaining}회 · 보유 포인트 ${(myProfile.points||0).toLocaleString()}P</p>
@@ -3259,10 +3274,11 @@ function renderArcadeLottery(){
       ${lotteryError ? `<div class="error-text" style="text-align:center;">${esc(lotteryError)}</div>` : ''}
       <button class="admin-btn" id="lottery-draw-btn" ${remaining===0?'disabled':''}>복권 긁기 (10P)</button>
     </div>
-    <p class="hint" style="text-align:center;">꽝 55% · 본전 25% · 20P당첨 15% · 50P당첨 5%</p>
+    <p class="hint" style="text-align:center;">꽝 80% · 20P당첨 15% · 50P당첨 5%</p>
   `;
 }
 function bindArcadeLotteryEvents(){
+  bindArcadeNavEvents();
   const btn = document.getElementById('lottery-draw-btn');
   if(btn) btn.addEventListener('click', async ()=>{
     btn.disabled = true; btn.textContent = '긁는 중...';
@@ -3282,6 +3298,7 @@ function bindArcadeLotteryEvents(){
 function renderArcadeCoinflip(){
   return `
     ${heroBlock('홀짝을 맞히고 배율을 키워보세요')}
+    ${renderArcadeNav('arcade-coinflip')}
     <div class="card" style="text-align:center;">
       <p style="font-size:13px; color:var(--muted);">보유 포인트 ${(myProfile.points||0).toLocaleString()}P</p>
       ${!coinflipGame ? `
@@ -3309,6 +3326,7 @@ function renderArcadeCoinflip(){
   `;
 }
 function bindArcadeCoinflipEvents(){
+  bindArcadeNavEvents();
   document.querySelectorAll('.coinflip-bet-btn').forEach(el=>{
     el.addEventListener('click', async (ev)=>{
       const bet = parseInt(el.dataset.bet);
@@ -3347,6 +3365,7 @@ function renderArcadeSlot(){
   const reelsToShow = (slotResult && slotResult.reels) ? slotResult.reels : ['cat','bear','rabbit'];
   return `
     ${heroBlock('세 캐릭터를 맞추면 200P')}
+    ${renderArcadeNav('arcade-slot')}
     <div class="card" style="text-align:center;">
       <p style="font-size:13px; color:var(--muted);">오늘 남은 횟수: ${remaining}회 · 보유 포인트 ${(myProfile.points||0).toLocaleString()}P</p>
       <div style="display:flex; justify-content:center; gap:10px; margin:16px 0;">
@@ -3362,6 +3381,7 @@ function renderArcadeSlot(){
   `;
 }
 function bindArcadeSlotEvents(){
+  bindArcadeNavEvents();
   const btn = document.getElementById('slot-spin-btn');
   if(btn) btn.addEventListener('click', async ()=>{
     btn.disabled = true; btn.textContent = '돌리는 중...';
@@ -3395,7 +3415,7 @@ function renderMyPage(){
     </div>` : ''}
     <div class="card">
       <div class="step-label" style="font-size:16px;">👤 내 정보</div>
-      <div class="final-row" style="justify-content:flex-start; color:var(--ink);"><span>이름</span><b style="color:var(--ink);">${esc(authUser.displayName||'-')}</b></div>
+      <div class="final-row" style="justify-content:flex-start; color:var(--ink);"><span>이름</span><b>${nameSpan(authUser.displayName||'-', myProfile)}</b></div>
       <div class="final-row" style="justify-content:flex-start; color:var(--ink);"><span>아이디</span><b style="color:var(--ink);">${esc((authUser.email||'').split('@')[0])}</b></div>
       <div class="final-row" style="justify-content:flex-start; color:var(--ink);"><span>소속</span><b style="color:var(--ink);">${esc(teamDoc && teamDoc.teamName ? teamDoc.teamName : '-')}</b></div>
     </div>
@@ -3670,6 +3690,13 @@ function renderMemberManage(){
             <input type="number" class="gift-points-input" data-uid="${esc(m.uid)}" placeholder="포인트" min="1" style="flex:1;">
             <button class="ghost-btn gift-points-btn" data-uid="${esc(m.uid)}">선물하기</button>
           </div>
+          ${removeMemberConfirm===m.uid ? `
+            <div style="margin-top:10px; padding-top:10px; border-top:1.5px dashed var(--line);">
+              <p style="font-size:12.5px; color:var(--red); margin-bottom:8px;">이 사람을 팀 목록에서 완전히 지울까요? 소속·포인트·캐릭터 정보가 사라지고, 다시 로그인하면 소속 없는 상태로 시작해요. 로그인 자체를 막으려면 Firebase 콘솔에서 별도로 삭제해야 해요.</p>
+              <button class="ghost-btn remove-member-cancel-btn" data-uid="${esc(m.uid)}" style="margin-right:8px;">취소</button>
+              <button class="ghost-btn remove-member-confirm-btn" data-uid="${esc(m.uid)}" style="border-color:var(--red); color:var(--red);">삭제 확정</button>
+            </div>
+          ` : `<button class="ghost-btn remove-member-btn" data-uid="${esc(m.uid)}" style="margin-top:8px; border-color:var(--red); color:var(--red);">이 사람 목록에서 삭제</button>`}
         </div>`;
       }).join('')}
   `;
@@ -3690,6 +3717,26 @@ function bindMemberManageEvents(){
       }catch(e){
         console.error(e);
         el.disabled = false; el.textContent = '선물하기';
+      }
+    });
+  });
+  document.querySelectorAll('.remove-member-btn').forEach(el=>{
+    el.addEventListener('click', ()=>{ removeMemberConfirm = el.dataset.uid; render(); });
+  });
+  document.querySelectorAll('.remove-member-cancel-btn').forEach(el=>{
+    el.addEventListener('click', ()=>{ removeMemberConfirm = null; render(); });
+  });
+  document.querySelectorAll('.remove-member-confirm-btn').forEach(el=>{
+    el.addEventListener('click', async ()=>{
+      el.disabled = true; el.textContent = '삭제 중...';
+      try{
+        await removeMember(el.dataset.uid);
+        removeMemberConfirm = null;
+        allMembers = null;
+        await loadAllMembers();
+      }catch(e){
+        console.error(e);
+        el.disabled = false; el.textContent = '삭제 확정';
       }
     });
   });
