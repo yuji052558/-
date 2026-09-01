@@ -460,6 +460,11 @@ let myProfile = { species:'cat', color:'black', points:0, lastCheckIn:null };
 let homeError = '';
 let myProfileLoaded = false;
 let orgDivisions = [];
+let allMembers = null;
+let reassignTarget = null;
+let reassignDivision = '';
+let reassignTeamId = '';
+let reassignTeamName = '';
 let orgDivisionsLoaded = false;
 let teamId = null;
 let teamDoc = null;
@@ -557,17 +562,39 @@ async function adminCreateAccount(name, username, password, targetTeamId, target
   const cred = await secAuth.createUserWithEmailAndPassword(usernameToEmail(username), password);
   await cred.user.updateProfile({ displayName: name });
   const uid = cred.user.uid;
-  await db.collection('userTeams').doc(uid).set({ teamId: targetTeamId, teamName: targetTeamName || '' });
+  await db.collection('userTeams').doc(uid).set({ teamId: targetTeamId, teamName: targetTeamName || '', name, username });
   await userProfilesRef.doc(uid).set({ species:'cat', color:'black', points:200, lastCheckIn:null });
   await secAuth.signOut();
   return uid;
 }
 async function saveUserTeamMapping(uid){
-  await db.collection('userTeams').doc(uid).set({ teamId: teamId, teamName: (teamDoc && teamDoc.teamName) || '' });
+  await db.collection('userTeams').doc(uid).set({
+    teamId: teamId,
+    teamName: (teamDoc && teamDoc.teamName) || '',
+    name: authUser ? (authUser.displayName||'') : '',
+    username: authUser ? (authUser.email||'').split('@')[0] : ''
+  }, { merge:true });
 }
 async function lookupUserTeam(uid){
   const snap = await db.collection('userTeams').doc(uid).get();
   return snap.exists ? snap.data() : null;
+}
+async function loadAllMembers(){
+  try{
+    const snap = await db.collection('userTeams').get();
+    allMembers = snap.docs.map(d=>Object.assign({ uid:d.id }, d.data()));
+  }catch(e){
+    console.error(e);
+    allMembers = [];
+  }
+  render();
+}
+async function reassignMember(uid, newTeamId, newTeamName){
+  const teamSnap = await teamsRef.doc(newTeamId).get();
+  if(!teamSnap.exists){
+    await teamsRef.doc(newTeamId).set({ teamName: newTeamName, createdAt: Date.now(), adminUid: authUser.uid });
+  }
+  await db.collection('userTeams').doc(uid).update({ teamId: newTeamId, teamName: newTeamName });
 }
 
 /* ==================== 조직 구조 (본부/팀) - 관리자 전용 ==================== */
@@ -1379,6 +1406,16 @@ function render(){
       return;
     }
   }
+  if(currentView==='member-manage'){
+    if(!isAdmin()){ currentView='home'; }
+    else {
+      if(allMembers===null){ app.innerHTML = renderSiteHeader() + `<div class="loading">불러오는 중...</div>`; bindSiteHeader(); loadAllMembers(); return; }
+      app.innerHTML = renderSiteHeader() + renderMemberManage();
+      bindSiteHeader();
+      bindMemberManageEvents();
+      return;
+    }
+  }
   if(currentView==='org-admin'){
     if(!isAdmin()){ currentView='home'; }
     else {
@@ -1461,6 +1498,7 @@ function renderSiteHeader(){
             ${isAdmin() ? `
               <div class="menu-section-label">관리자 메뉴</div>
               <button class="menu-item" data-target="members-admin">👥 팀원 계정 등록</button>
+              <button class="menu-item" data-target="member-manage">🧑‍🤝‍🧑 팀원 관리</button>
               <button class="menu-item" data-target="org-admin">🏢 조직 구조 관리</button>
               <button class="menu-item" data-target="global-feedback">📋 전체 팀 피드백</button>
             ` : ''}
@@ -1516,6 +1554,7 @@ function bindSiteHeader(){
       if(t==='history') historyItems = null;
       if(t==='feedback') feedbackItems = null;
       if(t==='global-feedback') globalFeedbackItems = null;
+      if(t==='member-manage') allMembers = null;
       render();
     });
   });
@@ -3083,6 +3122,83 @@ function bindOrgAdminEvents(){
       try{ await removeDivision(el.dataset.div); }
       catch(e){ console.error(e); }
       render();
+    });
+  });
+}
+
+function renderMemberManage(){
+  return `
+    ${heroBlock('등록된 팀원을 관리해요')}
+    ${(!allMembers || allMembers.length===0) ? `<p class="empty-note">등록된 팀원이 없어요.</p>` :
+      allMembers.map(m=>{
+        const isEditing = reassignTarget === m.uid;
+        const divTeams = (orgDivisions.find(d=>d.name===reassignDivision)||{}).teams || [];
+        return `<div class="history-item">
+          <div class="h-date">${esc(m.name||'-')} <span style="font-weight:400; color:var(--muted); font-size:12px;">(${esc(m.username||'-')})</span></div>
+          <div class="h-meta">현재 소속: ${esc(m.teamName||m.teamId||'-')}</div>
+          ${isEditing ? `
+            <div style="margin-top:10px;">
+              <select class="reassign-division-select" data-uid="${esc(m.uid)}" style="width:100%; margin-bottom:6px; padding:9px; border-radius:8px; border:1.5px solid var(--line); background:var(--cream); font-family:inherit;">
+                <option value="">본부 선택</option>
+                ${orgDivisions.map(d=>`<option value="${esc(d.name)}" ${reassignDivision===d.name?'selected':''}>${esc(d.name)}</option>`).join('')}
+              </select>
+              <select class="reassign-team-select" data-uid="${esc(m.uid)}" style="width:100%; margin-bottom:8px; padding:9px; border-radius:8px; border:1.5px solid var(--line); background:var(--cream); font-family:inherit;" ${reassignDivision?'':'disabled'}>
+                <option value="">${reassignDivision?'팀 선택':'먼저 본부를 선택해주세요'}</option>
+                ${divTeams.map(t=>{
+                  const tn = typeof t==='string'?t:t.name;
+                  const tid = typeof t==='string'?t:t.teamId;
+                  return `<option value="${esc(tid)}" data-name="${esc(tn)}" ${reassignTeamId===tid?'selected':''}>${esc(tn)}</option>`;
+                }).join('')}
+              </select>
+              <button class="ghost-btn reassign-cancel-btn" data-uid="${esc(m.uid)}" style="margin-right:8px;">취소</button>
+              <button class="admin-btn reassign-save-btn" data-uid="${esc(m.uid)}">저장</button>
+            </div>
+          ` : `<button class="ghost-btn reassign-start-btn" data-uid="${esc(m.uid)}" style="margin-top:8px;">소속 변경</button>`}
+        </div>`;
+      }).join('')}
+  `;
+}
+function bindMemberManageEvents(){
+  document.querySelectorAll('.reassign-start-btn').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      reassignTarget = el.dataset.uid;
+      reassignDivision = '';
+      reassignTeamId = '';
+      reassignTeamName = '';
+      render();
+    });
+  });
+  document.querySelectorAll('.reassign-cancel-btn').forEach(el=>{
+    el.addEventListener('click', ()=>{ reassignTarget = null; render(); });
+  });
+  document.querySelectorAll('.reassign-division-select').forEach(el=>{
+    el.addEventListener('change', e=>{
+      reassignDivision = e.target.value;
+      reassignTeamId = '';
+      reassignTeamName = '';
+      render();
+    });
+  });
+  document.querySelectorAll('.reassign-team-select').forEach(el=>{
+    el.addEventListener('change', e=>{
+      reassignTeamId = e.target.value;
+      const opt = e.target.selectedOptions[0];
+      reassignTeamName = opt ? opt.dataset.name : '';
+    });
+  });
+  document.querySelectorAll('.reassign-save-btn').forEach(el=>{
+    el.addEventListener('click', async ()=>{
+      if(!reassignTeamId) return;
+      el.disabled = true; el.textContent = '저장 중...';
+      try{
+        await reassignMember(el.dataset.uid, reassignTeamId, reassignTeamName);
+        allMembers = null;
+        reassignTarget = null;
+        await loadAllMembers();
+      }catch(e){
+        console.error(e);
+        el.disabled = false; el.textContent = '저장';
+      }
     });
   });
 }
