@@ -605,7 +605,19 @@ async function lookupUserTeam(uid){
 async function loadAllMembers(){
   try{
     const snap = await db.collection('userTeams').get();
-    allMembers = snap.docs.map(d=>Object.assign({ uid:d.id }, d.data()));
+    const members = snap.docs.map(d=>Object.assign({ uid:d.id }, d.data()));
+    // 캐시된 teamName 대신 실제 팀 문서에서 최신 이름을 다시 조회 (오래된 값 표시 방지)
+    const uniqueTeamIds = Array.from(new Set(members.map(m=>m.teamId).filter(Boolean)));
+    const teamNameMap = {};
+    await Promise.all(uniqueTeamIds.map(async (tid)=>{
+      try{
+        const tSnap = await teamsRef.doc(tid).get();
+        teamNameMap[tid] = tSnap.exists ? (tSnap.data().teamName || tid) : tid;
+      }catch(e){
+        teamNameMap[tid] = tid;
+      }
+    }));
+    allMembers = members.map(m=> Object.assign({}, m, { teamName: m.teamId ? (teamNameMap[m.teamId] || m.teamName) : m.teamName }));
   }catch(e){
     console.error(e);
     allMembers = [];
