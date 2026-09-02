@@ -3920,7 +3920,7 @@ function renderMemberManage(){
             <p style="font-size:12px; color:var(--muted); margin-bottom:6px;">🔒 계정 자체를 완전히 삭제하려면, 이 사람의 현재 비밀번호가 필요해요 (알고 계실 때만).</p>
             <input type="password" class="full-delete-password-input" data-uid="${esc(m.uid)}" data-username="${esc(m.username||'')}" placeholder="이 사람의 비밀번호" style="margin-bottom:6px;">
             ${fullDeleteError[m.uid] ? `<div class="error-text" style="margin-bottom:6px;">${esc(fullDeleteError[m.uid])}</div>` : ''}
-            <button class="ghost-btn full-delete-btn" data-uid="${esc(m.uid)}" style="border-color:var(--red); color:var(--red);" ${m.username?'':'disabled'}>계정까지 완전 삭제</button>
+            <button class="ghost-btn full-delete-btn" data-uid="${esc(m.uid)}" data-username="${esc(m.username||'')}" style="border-color:var(--red); color:var(--red);" ${m.username?'':'disabled'}>계정까지 완전 삭제</button>
             ${!m.username ? `<p class="hint" style="margin-top:4px;">아이디 정보가 없어서 이 기능을 쓸 수 없어요 (한 번 로그인하면 채워져요).</p>` : ''}
           </div>
         </div>`;
