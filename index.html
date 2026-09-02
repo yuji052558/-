@@ -722,12 +722,25 @@ async function loadOrgDivisions(){
   try{
     const snap = await orgDivisionsRef.get();
     orgDivisions = snap.docs.map(d=>d.data());
+    sortOrgDivisions();
   }catch(e){
     console.error(e);
     orgDivisions = [];
   }
   orgDivisionsLoaded = true;
   render();
+}
+function sortOrgDivisions(){
+  orgDivisions.sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'ko'));
+  orgDivisions.forEach(d=>{
+    if(Array.isArray(d.teams)){
+      d.teams.sort((t1,t2)=>{
+        const n1 = typeof t1==='string' ? t1 : (t1.name||'');
+        const n2 = typeof t2==='string' ? t2 : (t2.name||'');
+        return n1.localeCompare(n2, 'ko');
+      });
+    }
+  });
 }
 async function addDivision(name){
   await orgDivisionsRef.doc(name).set({ name, teams: [] }, { merge:true });
