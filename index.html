@@ -469,6 +469,8 @@ let homeError = '';
 let myProfileLoaded = false;
 let orgDivisions = [];
 let allMembers = null;
+let teamMembersList = null;
+let teamMembersLoadedFor = null;
 let selfReassignOpen = false;
 let selfReassignDivision = '';
 let selfReassignTeamId = '';
@@ -605,6 +607,28 @@ async function lookupUserTeam(uid){
   const snap = await db.collection('userTeams').doc(uid).get();
   return snap.exists ? snap.data() : null;
 }
+async function loadTeamMembersList(){
+  const forTeam = teamId;
+  try{
+    const snap = await db.collection('userTeams').where('teamId','==',teamId).get();
+    const members = snap.docs.map(d=>Object.assign({ uid:d.id }, d.data()));
+    await Promise.all(members.map(async (m)=>{
+      try{
+        const pSnap = await userProfilesRef.doc(m.uid).get();
+        if(pSnap.exists){
+          const pd = pSnap.data();
+          m.species = pd.species; m.color = pd.color; m.hair = pd.hair;
+        }
+      }catch(e){ /* 무시 - 캐릭터 정보 없어도 이름은 표시 */ }
+    }));
+    teamMembersList = members;
+  }catch(e){
+    console.error(e);
+    teamMembersList = [];
+  }
+  teamMembersLoadedFor = forTeam;
+  render();
+}
 async function loadAllMembers(){
   try{
     const snap = await db.collection('userTeams').get();
@@ -628,7 +652,7 @@ async function loadAllMembers(){
         const data = tSnap.exists ? tSnap.data() : null;
         const plainName = data ? (data.teamName || tid) : tid;
         const division = (data && data.division) || teamIdToDivision[tid] || '';
-        teamNameMap[tid] = division ? `${division} ${plainName}` : plainName;
+        teamNameMap[tid] = (division && !plainName.startsWith(division)) ? `${division} ${plainName}` : plainName;
       }catch(e){
         teamNameMap[tid] = tid;
       }
@@ -984,6 +1008,20 @@ function renderBudgetSummaryCard(){
   `;
 }
 
+function renderTeamMembersCard(){
+  if(teamMembersLoadedFor !== teamId) return '';
+  const list = teamMembersList || [];
+  return `
+    <div class="card">
+      <div class="step-label" style="font-size:15px;">👥 우리 팀 (${list.length}명)</div>
+      ${list.length===0 ? `<p class="empty-note">아직 로그인한 팀원이 없어요.</p>` :
+        `<div style="display:flex; flex-wrap:wrap; gap:8px;">
+          ${list.map(m=>`<span class="voter-tag">${renderMiniCharacter({species:m.species, color:m.color, hair:m.hair})}${nameSpan(m.name||'-', {nameColor:null})}</span>`).join('')}
+        </div>`}
+    </div>
+  `;
+}
+
 function renderCheckInCard(){
   if(!myProfileLoaded) return '';
   const today = new Date().toISOString().slice(0,10);
@@ -1016,6 +1054,7 @@ function renderHome(){
 
     ${renderCheckInCard()}
     ${renderHomeStatusCard()}
+    ${renderTeamMembersCard()}
     ${renderBudgetSummaryCard()}
 
     <div class="home-nav-grid">
@@ -1383,6 +1422,10 @@ async function updateTeamSize(newSize){
 async function updatePollTitle(newTitle){
   await pollRef.update({ title: newTitle });
 }
+async function updateTeamName(newTeamName){
+  await teamsRef.doc(teamId).update({ teamName: newTeamName });
+  teamDoc = Object.assign({}, teamDoc, { teamName: newTeamName });
+}
 
 async function saveVote(name, voteData, prevName){
   await db.runTransaction(async (tx)=>{
@@ -1684,6 +1727,7 @@ function render(){
     return;
   }
   if(currentView==='home'){
+    if(teamMembersLoadedFor !== teamId){ loadTeamMembersList(); }
     app.innerHTML = renderSiteHeader() + renderHome();
     bindSiteHeader();
     bindHomeEvents();
@@ -1824,6 +1868,8 @@ function resetTeamState(){
   memberNames = [];
   budgetDoc = null;
   budgetLoaded = false;
+  teamMembersList = null;
+  teamMembersLoadedFor = null;
   myProfile = { species:'cat', color:'black', points:0, lastCheckIn:null };
   myProfileLoaded = false;
   customizeDraft = null;
@@ -3515,6 +3561,15 @@ function renderMyPage(){
       <div class="final-row" style="justify-content:flex-start; color:var(--ink);"><span>아이디</span><b style="color:var(--ink);">${esc((authUser.email||'').split('@')[0])}</b></div>
       <div class="final-row" style="justify-content:flex-start; color:var(--ink);"><span>소속</span><b style="color:var(--ink);">${esc(teamDoc && teamDoc.teamName ? teamDoc.teamName : '-')}</b></div>
     </div>
+    ${isAdmin() ? `
+    <div class="card">
+      <div class="step-label" style="font-size:15px;">🔧 팀 이름 수정 (관리자 전용)</div>
+      <p class="step-desc" style="margin-left:0;">팀 실제 이름이 잘못 저장되어 있다면 여기서 바로 고칠 수 있어요. (예: "브랜드본부 그래픽2팀"처럼 겹쳐있다면 "그래픽2팀"으로 수정)</p>
+      <div class="other-add-row">
+        <input type="text" id="teamname-edit-input" value="${esc((teamDoc && teamDoc.teamName) || '')}">
+        <button id="teamname-save-btn">저장</button>
+      </div>
+    </div>` : ''}
     <div class="card">
       <div class="step-label" style="font-size:16px;">🔁 소속 변경</div>
       <p class="step-desc" style="margin-left:0;">인사이동 등으로 소속팀이 바뀌었다면 직접 변경할 수 있어요.</p>
@@ -3559,6 +3614,19 @@ function renderMyPage(){
 function bindMyPageEvents(){
   const customizeBtn = document.getElementById('mypage-customize-btn');
   if(customizeBtn) customizeBtn.addEventListener('click', ()=>{ currentView='customize'; render(); });
+
+  const teamNameSaveBtn = document.getElementById('teamname-save-btn');
+  if(teamNameSaveBtn) teamNameSaveBtn.addEventListener('click', async (ev)=>{
+    const btn = ev.currentTarget;
+    const input = document.getElementById('teamname-edit-input');
+    const val = input.value.trim();
+    if(!val) return;
+    btn.disabled = true; btn.textContent = '저장 중...';
+    try{ await updateTeamName(val); }
+    catch(e){ console.error(e); }
+    btn.disabled = false; btn.textContent = '저장';
+    render();
+  });
 
   const addPointsBtn = document.getElementById('mypage-add-points-btn');
   if(addPointsBtn) addPointsBtn.addEventListener('click', async (ev)=>{
