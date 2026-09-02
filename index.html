@@ -488,6 +488,9 @@ let reassignDivision = '';
 let reassignTeamId = '';
 let reassignTeamName = '';
 let removeMemberConfirm = null;
+let fullDeleteError = {};
+let withdrawConfirming = false;
+let withdrawError = '';
 let orgDivisionsLoaded = false;
 let teamId = null;
 let teamDoc = null;
@@ -606,13 +609,26 @@ async function loadAllMembers(){
   try{
     const snap = await db.collection('userTeams').get();
     const members = snap.docs.map(d=>Object.assign({ uid:d.id }, d.data()));
+
+    // 조직 구조에서 teamId -> 소속 본부 이름 매핑을 만들어둠
+    const teamIdToDivision = {};
+    orgDivisions.forEach(d=>{
+      (d.teams||[]).forEach(t=>{
+        const tid = typeof t==='string' ? t : t.teamId;
+        if(tid) teamIdToDivision[tid] = d.name;
+      });
+    });
+
     // 캐시된 teamName 대신 실제 팀 문서에서 최신 이름을 다시 조회 (오래된 값 표시 방지)
     const uniqueTeamIds = Array.from(new Set(members.map(m=>m.teamId).filter(Boolean)));
     const teamNameMap = {};
     await Promise.all(uniqueTeamIds.map(async (tid)=>{
       try{
         const tSnap = await teamsRef.doc(tid).get();
-        teamNameMap[tid] = tSnap.exists ? (tSnap.data().teamName || tid) : tid;
+        const data = tSnap.exists ? tSnap.data() : null;
+        const plainName = data ? (data.teamName || tid) : tid;
+        const division = (data && data.division) || teamIdToDivision[tid] || '';
+        teamNameMap[tid] = division ? `${division} ${plainName}` : plainName;
       }catch(e){
         teamNameMap[tid] = tid;
       }
@@ -637,6 +653,15 @@ async function giftPoints(uid, amount){
 async function removeMember(uid){
   await db.collection('userTeams').doc(uid).delete();
   await userProfilesRef.doc(uid).delete();
+}
+async function fullyDeleteMemberAccount(username, password){
+  const secAuth = getSecondaryAuth();
+  const cred = await secAuth.signInWithEmailAndPassword(usernameToEmail(username), password);
+  const uid = cred.user.uid;
+  try{ await db.collection('userTeams').doc(uid).delete(); }catch(e){ console.error(e); }
+  try{ await userProfilesRef.doc(uid).delete(); }catch(e){ console.error(e); }
+  await cred.user.delete();
+  await secAuth.signOut();
 }
 
 /* ==================== 자유토론 ==================== */
@@ -1204,6 +1229,14 @@ async function loadMyProfile(uid, retries){
 }
 async function saveMyProfile(){
   await userProfilesRef.doc(authUser.uid).set(myProfile, { merge:true });
+}
+async function deleteMyAccount(password){
+  const cred = firebase.auth.EmailAuthProvider.credential(authUser.email, password);
+  await authUser.reauthenticateWithCredential(cred);
+  const uid = authUser.uid;
+  try{ await db.collection('userTeams').doc(uid).delete(); }catch(e){ console.error(e); }
+  try{ await userProfilesRef.doc(uid).delete(); }catch(e){ console.error(e); }
+  await authUser.delete();
 }
 async function dailyCheckIn(){
   const today = new Date().toISOString().slice(0,10);
@@ -3511,6 +3544,16 @@ function renderMyPage(){
       <p class="step-desc" style="margin-left:0;">이 링크를 팀원에게 공유하면 바로 우리 팀으로 들어와요</p>
       <button class="admin-btn" id="mypage-copy-link-btn">링크 복사하기</button>
     </div>
+    <div class="card">
+      <div class="step-label" style="font-size:16px; color:var(--red);">🚪 회원 탈퇴</div>
+      <p class="step-desc" style="margin-left:0;">실수로 여러 번 가입한 계정을 정리할 때 사용해주세요. 계정과 소속·포인트·캐릭터 정보가 전부 삭제되고 되돌릴 수 없어요.</p>
+      ${withdrawConfirming ? `
+        <input type="password" id="withdraw-password-input" placeholder="본인 확인을 위해 비밀번호를 입력해주세요" style="margin-bottom:8px;">
+        ${withdrawError ? `<div class="error-text">${esc(withdrawError)}</div>` : ''}
+        <button class="ghost-btn" id="withdraw-cancel-btn" style="margin-right:8px;">취소</button>
+        <button class="ghost-btn" id="withdraw-confirm-btn" style="border-color:var(--red); color:var(--red);">탈퇴 확정</button>
+      ` : `<button class="ghost-btn" id="withdraw-start-btn" style="border-color:var(--red); color:var(--red);">회원 탈퇴하기</button>`}
+    </div>
   `;
 }
 function bindMyPageEvents(){
@@ -3575,6 +3618,38 @@ function bindMyPageEvents(){
       btn.textContent = '✅ 복사됨';
       setTimeout(()=>{ btn.textContent = '링크 복사하기'; }, 1500);
     }).catch(()=>{});
+  });
+
+  const withdrawStartBtn = document.getElementById('withdraw-start-btn');
+  if(withdrawStartBtn) withdrawStartBtn.addEventListener('click', ()=>{
+    withdrawConfirming = true;
+    withdrawError = '';
+    render();
+  });
+  const withdrawCancelBtn = document.getElementById('withdraw-cancel-btn');
+  if(withdrawCancelBtn) withdrawCancelBtn.addEventListener('click', ()=>{
+    withdrawConfirming = false;
+    withdrawError = '';
+    render();
+  });
+  const withdrawConfirmBtn = document.getElementById('withdraw-confirm-btn');
+  if(withdrawConfirmBtn) withdrawConfirmBtn.addEventListener('click', async ()=>{
+    const pwInput = document.getElementById('withdraw-password-input');
+    const password = pwInput ? pwInput.value : '';
+    if(!password){ withdrawError = '비밀번호를 입력해주세요.'; render(); return; }
+    withdrawConfirmBtn.disabled = true; withdrawConfirmBtn.textContent = '탈퇴 처리 중...';
+    try{
+      await deleteMyAccount(password);
+      resetTeamState();
+      authUser = null;
+      currentView = 'home';
+      render();
+    }catch(e){
+      console.error('회원 탈퇴 실패', e);
+      withdrawError = e.code==='auth/wrong-password' ? '비밀번호가 올바르지 않아요.' : '탈퇴에 실패했어요. 다시 시도해주세요.';
+      withdrawConfirmBtn.disabled = false; withdrawConfirmBtn.textContent = '탈퇴 확정';
+      render();
+    }
   });
 }
 
@@ -3755,16 +3830,44 @@ function renderMemberManage(){
           </div>
           ${removeMemberConfirm===m.uid ? `
             <div style="margin-top:10px; padding-top:10px; border-top:1.5px dashed var(--line);">
-              <p style="font-size:12.5px; color:var(--red); margin-bottom:8px;">이 사람을 팀 목록에서 완전히 지울까요? 소속·포인트·캐릭터 정보가 사라지고, 다시 로그인하면 소속 없는 상태로 시작해요. 로그인 자체를 막으려면 Firebase 콘솔에서 별도로 삭제해야 해요.</p>
+              <p style="font-size:12.5px; color:var(--red); margin-bottom:8px;">이 사람의 소속·포인트·캐릭터 데이터만 지울까요? 로그인 계정 자체는 그대로 남아서, 다시 로그인하면 소속 없는 상태로 시작해요.</p>
               <button class="ghost-btn remove-member-cancel-btn" data-uid="${esc(m.uid)}" style="margin-right:8px;">취소</button>
-              <button class="ghost-btn remove-member-confirm-btn" data-uid="${esc(m.uid)}" style="border-color:var(--red); color:var(--red);">삭제 확정</button>
+              <button class="ghost-btn remove-member-confirm-btn" data-uid="${esc(m.uid)}" style="border-color:var(--red); color:var(--red);">데이터 삭제 확정</button>
             </div>
-          ` : `<button class="ghost-btn remove-member-btn" data-uid="${esc(m.uid)}" style="margin-top:8px; border-color:var(--red); color:var(--red);">이 사람 목록에서 삭제</button>`}
+          ` : `<button class="ghost-btn remove-member-btn" data-uid="${esc(m.uid)}" style="margin-top:8px; border-color:var(--red); color:var(--red);">데이터만 삭제 (로그인은 유지)</button>`}
+          <div style="margin-top:10px; padding-top:10px; border-top:1.5px dashed var(--line);">
+            <p style="font-size:12px; color:var(--muted); margin-bottom:6px;">🔒 계정 자체를 완전히 삭제하려면, 이 사람의 현재 비밀번호가 필요해요 (알고 계실 때만).</p>
+            <input type="password" class="full-delete-password-input" data-uid="${esc(m.uid)}" data-username="${esc(m.username||'')}" placeholder="이 사람의 비밀번호" style="margin-bottom:6px;">
+            ${fullDeleteError[m.uid] ? `<div class="error-text" style="margin-bottom:6px;">${esc(fullDeleteError[m.uid])}</div>` : ''}
+            <button class="ghost-btn full-delete-btn" data-uid="${esc(m.uid)}" style="border-color:var(--red); color:var(--red);" ${m.username?'':'disabled'}>계정까지 완전 삭제</button>
+            ${!m.username ? `<p class="hint" style="margin-top:4px;">아이디 정보가 없어서 이 기능을 쓸 수 없어요 (한 번 로그인하면 채워져요).</p>` : ''}
+          </div>
         </div>`;
       }).join('')}
   `;
 }
 function bindMemberManageEvents(){
+  document.querySelectorAll('.full-delete-btn').forEach(el=>{
+    el.addEventListener('click', async ()=>{
+      const uid = el.dataset.uid;
+      const username = el.dataset.username;
+      const pwInput = document.querySelector(`.full-delete-password-input[data-uid="${uid}"]`);
+      const password = pwInput ? pwInput.value : '';
+      if(!password){ fullDeleteError[uid] = '비밀번호를 입력해주세요.'; render(); return; }
+      fullDeleteError[uid] = '';
+      el.disabled = true; el.textContent = '삭제 중...';
+      try{
+        await fullyDeleteMemberAccount(username, password);
+        allMembers = null;
+        await loadAllMembers();
+      }catch(e){
+        console.error(e);
+        fullDeleteError[uid] = e.code==='auth/wrong-password' ? '비밀번호가 올바르지 않아요.' : '삭제에 실패했어요.';
+        el.disabled = false; el.textContent = '계정까지 완전 삭제';
+        render();
+      }
+    });
+  });
   document.querySelectorAll('.gift-points-btn').forEach(el=>{
     el.addEventListener('click', async ()=>{
       const uid = el.dataset.uid;
