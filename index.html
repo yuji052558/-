@@ -476,7 +476,8 @@
   .desktop-inline-nav{ display:none; }
   @media (min-width: 900px){
     .menu-panel{ position:absolute !important; top:calc(100% + 10px); left:auto; right:0; z-index:9999; }
-    .menu-hover-zone:hover .menu-panel:not(.open){ max-height:0; opacity:0; pointer-events:none; }
+    .menu-panel:not(.open){ border-width:0 !important; box-shadow:none !important; overflow:hidden !important; }
+    .menu-hover-zone:hover .menu-panel:not(.open){ max-height:0; opacity:0; pointer-events:none; border-width:0 !important; overflow:hidden; box-shadow:none; }
     .wrap{ max-width: 1100px; padding: 24px 40px 90px; }
 
     /* 헤더와 노란 히어로를 화면 끝까지 완전히 채움(full-bleed), 내부 콘텐츠만 가운데 정렬 */
