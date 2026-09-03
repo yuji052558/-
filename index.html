@@ -185,12 +185,12 @@
   }
   .site-header-brand img{ height:24px; display:block; }
   .menu-panel{
-    position:absolute; top:100%; left:0;
+    position:fixed; top:60px; left:16px; right:auto;
     width:240px; max-width:80vw;
     overflow-y:auto;
     background:var(--white); border:1.5px solid var(--ink); border-radius:14px;
     box-shadow:0 12px 28px rgba(0,0,0,0.2);
-    z-index:45;
+    z-index:9999;
   }
   .menu-item{
     display:block; width:100%; text-align:left; background:none; border:none; border-bottom:1px solid var(--line);
@@ -471,12 +471,12 @@
   .desktop-inline-nav{ display:none; }
   @media (min-width: 900px){
     .menu-panel{
-      position:absolute; top:calc(100% + 10px); left:auto; right:0; z-index:9999;
+      position:fixed; top:74px; left:auto; right:max(24px, calc(50vw - 510px)); z-index:9999;
     }
     .wrap{ max-width: 1100px; padding: 24px 40px 90px; }
 
     /* 헤더와 노란 히어로를 화면 끝까지 완전히 채움(full-bleed), 내부 콘텐츠만 가운데 정렬 */
-    .nav-wrap{ margin-top:0; box-shadow: 0 0 0 100vmax var(--yellow); clip-path: inset(0 -100vmax -320px -100vmax); position:relative; z-index:41; }
+    .nav-wrap{ margin-top:0; box-shadow: 0 0 0 100vmax var(--yellow); clip-path: inset(0 -100vmax); position:relative; z-index:41; }
     .yellow-zone{ padding:0; box-shadow: 0 0 0 100vmax var(--yellow); clip-path: inset(0 -100vmax); position:relative; }
     .yellow-zone-inner{ max-width:1100px; margin:0 auto; padding:30px 40px 34px; }
 
@@ -1992,32 +1992,32 @@ function renderSiteHeader(){
 
         <div class="menu-hover-zone ${isAdmin()?'is-admin':'not-admin'}">
           <button class="menu-toggle" id="menu-toggle-btn"><span class="hamburger-icon"><span></span><span></span><span></span></span><span class="menu-toggle-btn-hide-text">MENU</span></button>
-          ${menuOpen ? `
-          <div class="menu-panel open" id="menu-panel">
-            <button class="menu-item menu-item-core" data-target="home">🏠 홈</button>
-            <button class="menu-item menu-item-core" data-target="vote">🗳️ 투표하기</button>
-            <button class="menu-item menu-item-core" data-target="budget">💰 복후비</button>
-            <button class="menu-item menu-item-core" data-target="customize">🎨 캐릭터 꾸미기</button>
-            <button class="menu-item menu-item-core" data-target="history">📖 지난 회식 기록</button>
-            <button class="menu-item menu-item-core" data-target="feedback">💬 사용성피드백</button>
-            <button class="menu-item menu-item-core" data-target="arcade">🕹️ 복픽오락실</button>
-            ${isAdmin() ? `
-              <div class="menu-section-label">관리자 메뉴</div>
-              <button class="menu-item" data-target="members-admin">👥 팀원 계정 등록</button>
-              <button class="menu-item" data-target="member-manage">🧑‍🤝‍🧑 팀원 관리</button>
-              <button class="menu-item" data-target="org-admin">🏢 조직 구조 관리</button>
-              <button class="menu-item" data-target="global-feedback">📋 전체 팀 피드백</button>
-            ` : ''}
-            ${teamId ? `<div class="menu-team-info">👥 ${esc(teamDoc && teamDoc.teamName ? teamDoc.teamName : '팀')} · 코드 ${esc(teamId)}</div>` : ''}
-          </div>
-          ` : ''}
         </div>
         <div style="display:flex; align-items:center; gap:4px; height:32px;">
           <button class="icon-nav-btn" id="header-mypage-btn"><img src="${ICON_PERSON}" alt="마이페이지"></button>
           <button class="icon-nav-btn" id="header-logout-btn"><img src="${ICON_LOGOUT}" alt="로그아웃"></button>
         </div>
       </div>
-    </div>`;
+    </div>
+    ${menuOpen ? `
+    <div class="menu-panel open" id="menu-panel">
+      <button class="menu-item menu-item-core" data-target="home">🏠 홈</button>
+      <button class="menu-item menu-item-core" data-target="vote">🗳️ 투표하기</button>
+      <button class="menu-item menu-item-core" data-target="budget">💰 복후비</button>
+      <button class="menu-item menu-item-core" data-target="customize">🎨 캐릭터 꾸미기</button>
+      <button class="menu-item menu-item-core" data-target="history">📖 지난 회식 기록</button>
+      <button class="menu-item menu-item-core" data-target="feedback">💬 사용성피드백</button>
+      <button class="menu-item menu-item-core" data-target="arcade">🕹️ 복픽오락실</button>
+      ${isAdmin() ? `
+        <div class="menu-section-label">관리자 메뉴</div>
+        <button class="menu-item" data-target="members-admin">👥 팀원 계정 등록</button>
+        <button class="menu-item" data-target="member-manage">🧑‍🤝‍🧑 팀원 관리</button>
+        <button class="menu-item" data-target="org-admin">🏢 조직 구조 관리</button>
+        <button class="menu-item" data-target="global-feedback">📋 전체 팀 피드백</button>
+      ` : ''}
+      ${teamId ? `<div class="menu-team-info">👥 ${esc(teamDoc && teamDoc.teamName ? teamDoc.teamName : '팀')} · 코드 ${esc(teamId)}</div>` : ''}
+    </div>
+    ` : ''}`;
 }
 function goHome(){
   currentView = 'home';
