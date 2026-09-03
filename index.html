@@ -502,9 +502,9 @@
     .desktop-inline-nav .menu-item:hover{ opacity:1; }
 
     /* 기존 드롭다운은 관리자 전용 메뉴로 축소 (관리자 메뉴가 있을 때만 노출) */
-    .menu-hover-zone{ display:none; }
-    .menu-hover-zone:has(.menu-section-label){ display:flex; }
+
     .menu-panel .menu-item-core{ display:none; }
+    .menu-hover-zone.not-admin{ display:none; }
     .menu-toggle-btn-hide-text{ display:inline; }
     .menu-toggle{ font-size:11px; padding:6px 10px; border:1.5px solid var(--ink); }
     /* 다른 페이지들의 히어로 영역도 데스크탑에서 꽉 차는 노란 배경으로 (공유 캡처용 히어로는 제외해 안전하게 유지) */
@@ -1990,7 +1990,7 @@ function renderSiteHeader(){
           <button class="menu-item" data-target="feedback">사용성피드백</button>
         </nav>
 
-        <div class="menu-hover-zone">
+        <div class="menu-hover-zone ${isAdmin()?'is-admin':'not-admin'}">
           <button class="menu-toggle" id="menu-toggle-btn"><span class="hamburger-icon"><span></span><span></span><span></span></span><span class="menu-toggle-btn-hide-text">MENU</span></button>
           ${menuOpen ? `
           <div class="menu-panel open" id="menu-panel">
