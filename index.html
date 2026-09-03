@@ -478,8 +478,8 @@
     .wrap{ max-width: 1100px; padding: 24px 40px 90px; }
 
     /* 헤더와 노란 히어로를 화면 끝까지 완전히 채움(full-bleed), 내부 콘텐츠만 가운데 정렬 */
-    .nav-wrap{ margin-left:calc(-50vw + 50%); margin-right:calc(-50vw + 50%); margin-top:0; }
-    .yellow-zone{ margin-left:calc(-50vw + 50%); margin-right:calc(-50vw + 50%); padding:0; }
+    .nav-wrap{ margin-top:0; box-shadow: 0 0 0 100vmax var(--yellow); clip-path: inset(0 -100vmax); position:relative; z-index:41; }
+    .yellow-zone{ padding:0; box-shadow: 0 0 0 100vmax var(--yellow); clip-path: inset(0 -100vmax); position:relative; }
     .yellow-zone-inner{ max-width:1100px; margin:0 auto; padding:30px 40px 34px; }
 
     /* 헤더: 절대중앙 로고 방식 대신 일반 flex 배치로 전환해 겹침 방지 */
@@ -512,9 +512,10 @@
     /* 다른 페이지들의 히어로 영역도 데스크탑에서 꽉 차는 노란 배경으로 (공유 캡처용 히어로는 제외해 안전하게 유지) */
     .hero{
       background:var(--yellow); border:none; border-radius:0;
-      margin-left:calc(-50vw + 50%); margin-right:calc(-50vw + 50%);
+      box-shadow: 0 0 0 100vmax var(--yellow); clip-path: inset(0 -100vmax); position:relative;
       padding:34px 40px 30px;
     }
+    #final-card-capture .hero{ box-shadow:none; clip-path:none; }
     .hero-badge{ display:none; }
     .dashed-path{ display:none; }
     .checker-divider{ display:none; }
