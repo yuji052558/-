@@ -1256,6 +1256,7 @@ function bindHomeEvents(){
     el.addEventListener('click', ()=>{
       const t = el.dataset.target;
       currentView = t;
+      menuOpen = false;
       if(t==='history') historyItems = null;
       if(t==='feedback') feedbackItems = null;
       render();
