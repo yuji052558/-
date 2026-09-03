@@ -187,15 +187,10 @@
   .menu-panel{
     position:absolute; top:100%; left:0;
     width:240px; max-width:80vw;
-    max-height:0; overflow-y:auto; opacity:0; pointer-events:none;
-    transition:max-height .22s ease, opacity .18s ease;
-    background:var(--white); border:0 solid var(--ink); border-radius:14px;
+    overflow-y:auto;
+    background:var(--white); border:1.5px solid var(--ink); border-radius:14px;
     box-shadow:0 12px 28px rgba(0,0,0,0.2);
     z-index:45;
-  }
-  .menu-panel.open{ max-height:min(70vh, 560px); border-width:1.5px; opacity:1; pointer-events:auto; }
-  @media (hover:hover) and (pointer:fine){
-    .menu-hover-zone:hover .menu-panel{ max-height:min(70vh, 560px); border-width:1.5px; opacity:1; pointer-events:auto; }
   }
   .menu-item{
     display:block; width:100%; text-align:left; background:none; border:none; border-bottom:1px solid var(--line);
@@ -476,11 +471,8 @@
   .desktop-inline-nav{ display:none; }
   @media (min-width: 900px){
     .menu-panel{
-      position:absolute !important; top:calc(100% + 10px); left:auto; right:0; z-index:9999;
-      display:none !important; max-height:none !important; opacity:1 !important; pointer-events:auto !important;
-      border-width:1.5px !important;
+      position:absolute; top:calc(100% + 10px); left:auto; right:0; z-index:9999;
     }
-    .menu-panel.open{ display:block !important; }
     .wrap{ max-width: 1100px; padding: 24px 40px 90px; }
 
     /* 헤더와 노란 히어로를 화면 끝까지 완전히 채움(full-bleed), 내부 콘텐츠만 가운데 정렬 */
@@ -2000,7 +1992,8 @@ function renderSiteHeader(){
 
         <div class="menu-hover-zone">
           <button class="menu-toggle" id="menu-toggle-btn"><span class="hamburger-icon"><span></span><span></span><span></span></span><span class="menu-toggle-btn-hide-text">MENU</span></button>
-          <div class="menu-panel ${menuOpen?'open':''}" id="menu-panel">
+          ${menuOpen ? `
+          <div class="menu-panel open" id="menu-panel">
             <button class="menu-item menu-item-core" data-target="home">🏠 홈</button>
             <button class="menu-item menu-item-core" data-target="vote">🗳️ 투표하기</button>
             <button class="menu-item menu-item-core" data-target="budget">💰 복후비</button>
@@ -2017,6 +2010,7 @@ function renderSiteHeader(){
             ` : ''}
             ${teamId ? `<div class="menu-team-info">👥 ${esc(teamDoc && teamDoc.teamName ? teamDoc.teamName : '팀')} · 코드 ${esc(teamId)}</div>` : ''}
           </div>
+          ` : ''}
         </div>
         <div style="display:flex; align-items:center; gap:4px; height:32px;">
           <button class="icon-nav-btn" id="header-mypage-btn"><img src="${ICON_PERSON}" alt="마이페이지"></button>
