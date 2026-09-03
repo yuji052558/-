@@ -509,6 +509,21 @@
     .menu-panel .menu-item-core{ display:none; }
     .menu-toggle-btn-hide-text{ display:inline; }
     .menu-toggle{ font-size:11px; padding:6px 10px; border:1.5px solid var(--ink); }
+    /* 다른 페이지들의 히어로 영역도 데스크탑에서 꽉 차는 노란 배경으로 (공유 캡처용 히어로는 제외해 안전하게 유지) */
+    .hero{
+      background:var(--yellow); border:none; border-radius:0;
+      margin-left:calc(-50vw + 50%); margin-right:calc(-50vw + 50%);
+      padding:34px 40px 30px;
+    }
+    .hero-badge{ display:none; }
+    .dashed-path{ display:none; }
+    .checker-divider{ display:none; }
+    #final-card-capture .hero{
+      margin-left:0; margin-right:0; border:2px solid var(--ink); border-radius:22px; padding:34px 18px 26px;
+    }
+    #final-card-capture .hero-badge{ display:block; }
+    #final-card-capture .dashed-path{ display:block; }
+    #final-card-capture .checker-divider{ display:block; }
   }
 </style>
 </head>
