@@ -472,6 +472,7 @@
     box-shadow:0 4px 10px rgba(0,0,0,0.06);
   }
   /* ===== PC(넓은 화면) 반응형 ===== */
+  .desktop-inline-nav{ display:none; }
   @media (min-width: 900px){
     .wrap{ max-width: 1100px; padding: 24px 40px 90px; }
 
@@ -482,9 +483,8 @@
 
     /* 헤더: 절대중앙 로고 방식 대신 일반 flex 배치로 전환해 겹침 방지 */
     .site-header{ max-width:1100px; margin:0 auto; padding: 16px 40px; position:relative; }
-    .site-header-brand{ position:static; transform:none; order:-1; margin-right:28px; }
+    .site-header-brand{ position:static; transform:none; margin-right:32px; }
     .site-header-brand img{ height:26px; }
-    .menu-hover-zone{ flex:1; }
 
     .pictogram-grid{ grid-template-columns: repeat(6, 1fr); gap:14px; }
     .pictogram-item{ padding:20px 6px 16px; font-size:12.5px; }
@@ -494,22 +494,20 @@
     .team-row-wrap-y{ gap:10px; }
     .team-chip-y{ padding:8px 18px 8px 8px; font-size:13.5px; }
 
-    /* 햄버거 드롭다운을 가로 인라인 메뉴로 전환 */
-    .menu-toggle-btn-hide-text{ display:none; }
-    .menu-panel{
-      position:static !important; max-height:none !important; opacity:1 !important; pointer-events:auto !important;
-      display:flex !important; flex-direction:row; align-items:center; gap:20px; flex-wrap:wrap;
-      background:none; border:none !important; box-shadow:none; width:auto; max-width:none; padding:0;
-      overflow:visible;
-    }
-    .menu-item{
+    /* 자주 쓰는 메뉴는 상단에 가로로 노출 */
+    .desktop-inline-nav{ display:flex; align-items:center; gap:26px; flex:1; }
+    .desktop-inline-nav .menu-item{
       background:none; border:none; padding:0; font-size:13.5px; font-weight:800; color:var(--ink);
-      white-space:nowrap; opacity:0.75;
+      white-space:nowrap; opacity:0.75; cursor:pointer; font-family:inherit;
     }
-    .menu-item:hover{ opacity:1; }
-    .menu-section-label{ display:none; }
-    .menu-team-info{ display:none; }
-    #menu-toggle-btn{ display:none; }
+    .desktop-inline-nav .menu-item:hover{ opacity:1; }
+
+    /* 기존 드롭다운은 관리자 전용 메뉴로 축소 (관리자 메뉴가 있을 때만 노출) */
+    .menu-hover-zone{ display:none; }
+    .menu-hover-zone:has(.menu-section-label){ display:flex; }
+    .menu-panel .menu-item-core{ display:none; }
+    .menu-toggle-btn-hide-text{ display:inline; }
+    .menu-toggle{ font-size:11px; padding:6px 10px; border:1.5px solid var(--ink); }
   }
 </style>
 </head>
@@ -1964,15 +1962,28 @@ function renderSiteHeader(){
   return `
     <div class="nav-wrap">
       <div class="site-header">
+        <div class="site-header-brand" id="header-logo-btn"><img src="${BOKPICK_LOGO_HORIZ}" alt="BOKPICK"></div>
+
+        <nav class="desktop-inline-nav">
+          <button class="menu-item" data-target="home">홈</button>
+          <button class="menu-item" data-target="vote">투표하기</button>
+          <button class="menu-item" data-target="budget">복후비</button>
+          <button class="menu-item" data-target="customize">캐릭터</button>
+          <button class="menu-item" data-target="history">지난 회식 기록</button>
+          <button class="menu-item" data-target="arcade">복픽오락실</button>
+          <button class="menu-item" data-target="feedback">사용성피드백</button>
+        </nav>
+
         <div class="menu-hover-zone">
-          <button class="menu-toggle" id="menu-toggle-btn"><span class="hamburger-icon"><span></span><span></span><span></span></span><span>MENU</span></button>
+          <button class="menu-toggle" id="menu-toggle-btn"><span class="hamburger-icon"><span></span><span></span><span></span></span><span class="menu-toggle-btn-hide-text">MENU</span></button>
           <div class="menu-panel ${menuOpen?'open':''}" id="menu-panel">
-            <button class="menu-item" data-target="home">🏠 홈</button>
-            <button class="menu-item" data-target="vote">🗳️ 투표하기</button>
-            <button class="menu-item" data-target="budget">💰 복후비</button>
-            <button class="menu-item" data-target="history">📖 지난 회식 기록</button>
-            <button class="menu-item" data-target="feedback">💬 피드백</button>
-            <button class="menu-item" data-target="arcade">🕹️ 복픽오락실</button>
+            <button class="menu-item menu-item-core" data-target="home">🏠 홈</button>
+            <button class="menu-item menu-item-core" data-target="vote">🗳️ 투표하기</button>
+            <button class="menu-item menu-item-core" data-target="budget">💰 복후비</button>
+            <button class="menu-item menu-item-core" data-target="customize">🎨 캐릭터 꾸미기</button>
+            <button class="menu-item menu-item-core" data-target="history">📖 지난 회식 기록</button>
+            <button class="menu-item menu-item-core" data-target="feedback">💬 사용성피드백</button>
+            <button class="menu-item menu-item-core" data-target="arcade">🕹️ 복픽오락실</button>
             ${isAdmin() ? `
               <div class="menu-section-label">관리자 메뉴</div>
               <button class="menu-item" data-target="members-admin">👥 팀원 계정 등록</button>
@@ -1983,7 +1994,6 @@ function renderSiteHeader(){
             ${teamId ? `<div class="menu-team-info">👥 ${esc(teamDoc && teamDoc.teamName ? teamDoc.teamName : '팀')} · 코드 ${esc(teamId)}</div>` : ''}
           </div>
         </div>
-        <div class="site-header-brand" id="header-logo-btn"><img src="${BOKPICK_LOGO_HORIZ}" alt="BOKPICK"></div>
         <div style="display:flex; align-items:center; gap:4px; height:32px;">
           <button class="icon-nav-btn" id="header-mypage-btn"><img src="${ICON_PERSON}" alt="마이페이지"></button>
           <button class="icon-nav-btn" id="header-logout-btn"><img src="${ICON_LOGOUT}" alt="로그아웃"></button>
