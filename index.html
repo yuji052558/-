@@ -63,6 +63,7 @@
     color: var(--ink);
     font-family: 'Noto Sans KR', sans-serif;
     min-height:100vh;
+    overflow-x:hidden;
   }
   .wrap{ max-width: 760px; margin:0 auto; padding: 24px 18px 90px; }
 
@@ -477,8 +478,8 @@
     .wrap{ max-width: 1100px; padding: 24px 40px 90px; }
 
     /* 헤더와 노란 히어로를 화면 끝까지 완전히 채움(full-bleed), 내부 콘텐츠만 가운데 정렬 */
-    .nav-wrap{ width:100vw; margin-left:calc(-50vw + 50%); margin-top:0; }
-    .yellow-zone{ width:100vw; margin-left:calc(-50vw + 50%); margin-right:0; padding:0; }
+    .nav-wrap{ margin-left:calc(-50vw + 50%); margin-right:calc(-50vw + 50%); margin-top:0; }
+    .yellow-zone{ margin-left:calc(-50vw + 50%); margin-right:calc(-50vw + 50%); padding:0; }
     .yellow-zone-inner{ max-width:1100px; margin:0 auto; padding:30px 40px 34px; }
 
     /* 헤더: 절대중앙 로고 방식 대신 일반 flex 배치로 전환해 겹침 방지 */
@@ -495,10 +496,10 @@
     .team-chip-y{ padding:8px 18px 8px 8px; font-size:13.5px; }
 
     /* 자주 쓰는 메뉴는 상단에 가로로 노출 */
-    .desktop-inline-nav{ display:flex; align-items:center; gap:26px; flex:1; }
+    .desktop-inline-nav{ display:flex; align-items:center; justify-content:flex-start; gap:22px; flex:0 1 auto; margin-right:auto; }
     .desktop-inline-nav .menu-item{
       background:none; border:none; padding:0; font-size:13.5px; font-weight:800; color:var(--ink);
-      white-space:nowrap; opacity:0.75; cursor:pointer; font-family:inherit;
+      white-space:nowrap; opacity:0.75; cursor:pointer; font-family:inherit; flex:0 0 auto; width:auto; display:inline-block;
     }
     .desktop-inline-nav .menu-item:hover{ opacity:1; }
 
